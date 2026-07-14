@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lucrum — Walmart Store Analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="brand-mark">L</span>
+      <h1>Lucrum <span class="brand-sub">Walmart Store Analytics</span></h1>
+    </div>
+    <div class="header-actions">
+      <button id="switch-store-btn" class="btn-secondary" hidden>Switch store</button>
+      <button id="logout-btn" class="btn-secondary" hidden>Log out</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login-section" hidden>
+      <form id="login-form" class="card login-card">
+        <h2>Log in</h2>
+        <p class="note">Sign in with the account your team provided.</p>
+        <label>
+          Email
+          <input type="email" id="email" required autocomplete="email" />
+        </label>
+        <label>
+          Password
+          <input type="password" id="password" required autocomplete="current-password" />
+        </label>
+        <button type="submit">Log in</button>
+        <p id="login-error" class="error" hidden></p>
+      </form>
+    </section>
+
+    <section id="store-picker-section" hidden>
+      <div class="store-picker-page">
+        <h2>Choose a store</h2>
+        <p class="note">
+          You have access to more than one store. Each one is a separate business — pick which to work in.
+        </p>
+        <div id="store-cards" class="store-cards"></div>
+      </div>
+    </section>
+
+    <section id="dashboard-section" hidden>
+      <div class="app-shell">
+      <nav class="tabs" aria-label="Sections">
+        <span class="tab-group">Insights</span>
+        <button class="tab-btn active" data-tab="dashboard" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="tab-btn" data-tab="order-details" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 2h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+          <span>Orders</span>
+        </button>
+        <button class="tab-btn" data-tab="profit" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+          <span>Profit</span>
+        </button>
+        <span class="tab-group">Catalog</span>
+        <button class="tab-btn" data-tab="products" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.42l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42Z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>
+          <span>Products</span>
+        </button>
+        <button class="tab-btn" data-tab="inventory" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <span>Inventory</span>
+        </button>
+        <span class="tab-group">Operations</span>
+        <button class="tab-btn" data-tab="purchases" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span>Purchases</span>
+        </button>
+        <button class="tab-btn" data-tab="returns" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <span>Returns</span>
+        </button>
+        <button class="tab-btn" data-tab="damaged" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <span>Damaged Goods</span>
+        </button>
+        <span class="tab-group admin-only">Admin</span>
+        <button class="tab-btn admin-only" data-tab="team" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Team</span>
+        </button>
+        <button class="tab-btn admin-only" data-tab="stores" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/></svg>
+          <span>Stores</span>
+        </button>
+      </nav>
+
+      <div class="workspace">
+      <div class="toolbar">
+        <label class="store-picker">
+          <span>Store</span>
+          <select id="store-select"></select>
+        </label>
+        <label class="store-picker period-picker">
+          <span>Period</span>
+          <select id="period-select" title="Filter Orders, Purchases, Returns, Damaged and the Dashboard to one month. Inventory and Products always show current totals."></select>
+        </label>
+        <div class="toolbar-actions">
+          <button id="refresh-btn" class="btn-secondary refresh-btn" type="button" title="Pull the latest orders from Walmart into the database, then reload">
+            <span class="refresh-icon" aria-hidden="true">&#8635;</span>
+            <span class="refresh-label">Refresh orders</span>
+          </button>
+          <button id="refresh-fees-btn" class="btn-secondary refresh-btn" type="button" title="Pull settlement/fee data from Walmart (referral + label fees), then reload">
+            <span class="refresh-icon" aria-hidden="true">&#8635;</span>
+            <span class="refresh-label">Refresh fees</span>
+          </button>
+          <span id="sync-status" class="sync-status" role="status" hidden></span>
+        </div>
+      </div>
+
+      <div id="error-banner" class="banner banner-error" role="alert" hidden></div>
+
+      <div class="content">
+      <div class="tab-panel" id="tab-dashboard">
+        <div class="summary">
+          <div class="stat stat-products">
+            <span class="stat-label">Products</span>
+            <span class="stat-value" id="stat-products">0</span>
+          </div>
+          <div class="stat stat-revenue">
+            <span class="stat-label">Revenue</span>
+            <span class="stat-value" id="stat-revenue">0</span>
+          </div>
+          <div class="stat stat-cogs">
+            <span class="stat-label">COGS</span>
+            <span class="stat-value" id="stat-cogs">0</span>
+          </div>
+          <div class="stat stat-profit">
+            <span class="stat-label">Net Profit</span>
+            <span class="stat-value" id="stat-profit">0</span>
+          </div>
+        </div>
+
+        <div id="cost-warning" class="banner banner-warn" role="alert" hidden></div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Profit by SKU</h2>
+            <p class="note">
+              <strong>Net</strong> profit = revenue (product + shipping) − COGS − warehouse − Walmart fees.
+              Same numbers as the <strong>Orders</strong> and <strong>Profit</strong> tabs. Fees show $0
+              until settlement lands or you enter them on an order.
+            </p>
+          </div>
+          <div class="table-wrap">
+            <table id="profit-table">
+              <colgroup>
+                <col style="width: 13%" />
+                <col style="width: 26%" />
+                <col style="width: 8%" />
+                <col style="width: 12%" />
+                <col style="width: 11%" />
+                <col style="width: 11%" />
+                <col style="width: 10%" />
+                <col style="width: 13%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Units</th>
+                  <th>Revenue</th>
+                  <th>Unit Cost</th>
+                  <th>COGS</th>
+                  <th>Fees</th>
+                  <th>Net Profit</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-products" hidden>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h2>Catalog</h2>
+              <div class="card-actions">
+                <button id="export-costs-btn" class="btn-secondary btn-sm" type="button">Download SKU list</button>
+                <button id="import-costs-btn" class="btn-secondary btn-sm" type="button">Upload costs (CSV)</button>
+                <input id="import-costs-file" type="file" accept=".csv,text/csv" hidden />
+              </div>
+            </div>
+            <p class="note">Enter each product's buying price (unit cost) below, or use <strong>Upload costs (CSV)</strong>. Products with no price are flagged, and their profit is unreliable.</p>
+            <span id="import-status" class="sync-status" role="status" hidden></span>
+          </div>
+          <div class="table-wrap">
+            <table id="catalog-table">
+              <colgroup>
+                <col style="width: 14%" />
+                <col style="width: 32%" />
+                <col style="width: 11%" />
+                <col style="width: 11%" />
+                <col style="width: 12%" />
+                <col style="width: 12%" />
+                <col style="width: 8%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Price</th>
+                  <th>Status</th>
+                  <th>Unit Cost</th>
+                  <th>Warehouse Cost</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-purchases" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Add purchase</h2>
+            <p class="note">Record what you bought, how much, when, and from where (Amazon, wholesale, etc.).</p>
+          </div>
+          <form id="purchase-form" class="grid-form">
+            <label>Purchase date <input type="date" id="purchase-date" required /></label>
+            <label>Product name <input type="text" id="purchase-name" /></label>
+            <label>My SKU <input type="text" id="purchase-sku" required /></label>
+            <label>Supplier / Source <input type="text" id="purchase-source" placeholder="Amazon, wholesale..." /></label>
+            <label>Product link <input type="url" id="purchase-link" placeholder="https://..." /></label>
+            <label>Order # <input type="text" id="purchase-order" /></label>
+            <label>Qty <input type="number" id="purchase-qty" step="1" min="0" required /></label>
+            <label>Unit cost <input type="number" id="purchase-cost" step="0.01" min="0" required /></label>
+            <label>Sales tax <input type="number" id="purchase-tax" step="0.01" min="0" /></label>
+            <label>Shipping <input type="number" id="purchase-shipping" step="0.01" min="0" /></label>
+            <label>Status <input type="text" id="purchase-status" placeholder="Ordered, Received..." /></label>
+            <label>Notes <input type="text" id="purchase-notes" /></label>
+            <button type="submit">Add purchase</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h2>Purchase history</h2>
+              <div class="card-actions">
+                <button id="export-purchases-btn" class="btn-secondary btn-sm" type="button">Download template</button>
+                <button id="import-purchases-btn" class="btn-secondary btn-sm" type="button">Upload CSV</button>
+                <input id="import-purchases-file" type="file" accept=".csv,text/csv" hidden />
+              </div>
+            </div>
+            <p class="note">Total Cost = Qty × Unit Cost + Sales Tax + Shipping. Landed Unit Cost = Total Cost ÷ Qty.</p>
+            <span id="purchase-import-status" class="sync-status" role="status" hidden></span>
+          </div>
+          <div class="table-wrap table-wide">
+            <table id="purchases-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Order #</th>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Supplier</th>
+                  <th>Link</th>
+                  <th>Qty</th>
+                  <th>Unit Cost</th>
+                  <th>Sales Tax</th>
+                  <th>Shipping</th>
+                  <th>Total Cost</th>
+                  <th>Landed Unit Cost</th>
+                  <th>Status</th>
+                  <th>Notes</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-damaged" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Log damaged goods</h2>
+          </div>
+          <form id="damaged-form" class="grid-form">
+            <label>SKU <input type="text" id="damaged-sku" required /></label>
+            <label>Quantity <input type="number" id="damaged-qty" step="1" min="0" required /></label>
+            <label>Reason <input type="text" id="damaged-reason" /></label>
+            <label>Date <input type="date" id="damaged-date" required /></label>
+            <label>Notes <input type="text" id="damaged-notes" /></label>
+            <button type="submit">Add damaged</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Damaged goods history</h2>
+          </div>
+          <div class="table-wrap">
+            <table id="damaged-table">
+              <colgroup>
+                <col style="width: 13%" />
+                <col style="width: 16%" />
+                <col style="width: 31%" />
+                <col style="width: 9%" />
+                <col style="width: 15%" />
+                <col style="width: 16%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Reason</th>
+                  <th>Notes</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-inventory" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Inventory levels</h2>
+            <p class="note">On hand = purchased − sold + returned − damaged + manual adjustments.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="inventory-table">
+              <colgroup>
+                <col style="width: 16%" />
+                <col style="width: 28%" />
+                <col style="width: 9%" />
+                <col style="width: 9%" />
+                <col style="width: 9%" />
+                <col style="width: 9%" />
+                <col style="width: 9%" />
+                <col style="width: 11%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Purchased</th>
+                  <th>Sold</th>
+                  <th>Returned</th>
+                  <th>Damaged</th>
+                  <th>Adjusted</th>
+                  <th>On Hand</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Manual adjustment</h2>
+            <p class="note">Use this when the numbers above don't match your physical count (e.g. found extra stock, miscount, theft).</p>
+          </div>
+          <form id="adjustment-form" class="grid-form">
+            <label>SKU <input type="text" id="adjustment-sku" required /></label>
+            <label>Quantity (+ or -) <input type="number" id="adjustment-qty" step="1" required /></label>
+            <label>Reason <input type="text" id="adjustment-reason" /></label>
+            <label>Date <input type="date" id="adjustment-date" required /></label>
+            <label>Notes <input type="text" id="adjustment-notes" /></label>
+            <button type="submit">Add adjustment</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Adjustment history</h2>
+          </div>
+          <div class="table-wrap">
+            <table id="adjustments-table">
+              <colgroup>
+                <col style="width: 16%" />
+                <col style="width: 20%" />
+                <col style="width: 12%" />
+                <col style="width: 22%" />
+                <col style="width: 22%" />
+                <col style="width: 8%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>SKU</th>
+                  <th>Qty +/-</th>
+                  <th>Reason</th>
+                  <th>Notes</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-returns" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Customer returns</h2>
+            <p class="note">Customer returns/refunds reported by Walmart.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="returns-table">
+              <colgroup>
+                <col style="width: 14%" />
+                <col style="width: 16%" />
+                <col style="width: 32%" />
+                <col style="width: 10%" />
+                <col style="width: 14%" />
+                <col style="width: 14%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Revenue</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-order-details" hidden>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h2>Counted — Shipped &amp; Delivered</h2>
+              <label class="fee-toggle"><input type="checkbox" id="show-fees-toggle" /> Show fee columns</label>
+            </div>
+            <p class="note">
+              The only lines that count toward profit — the same set Walmart actually pays you for.
+              Double-click a row for every field, or to enter its fees while settlement is pending.
+              <span id="counted-summary" class="summary-line"></span>
+            </p>
+          </div>
+          <div class="table-wrap table-wide">
+            <table id="order-details-table" class="orders-table hide-fees">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Order Date</th>
+                  <th>Customer Order ID</th>
+                  <th>SKU/UPC</th>
+                  <th>Product Title</th>
+                  <th>Customer Details</th>
+                  <th>Order Qty</th>
+                  <th>Unit Selling Price</th>
+                  <th>Extra Shipping</th>
+                  <th>Unit Purchase Price</th>
+                  <th>Total Selling Price</th>
+                  <th>Total Extra Shipping</th>
+                  <th>Total Purchase Price</th>
+                  <th class="col-fees">Referral Fees</th>
+                  <th class="col-fees">Label Fees</th>
+                  <th>W.House Cost</th>
+                  <th>Total Cost</th>
+                  <th>Net Profit</th>
+                  <th>Margin</th>
+                  <th>Order Status</th>
+                  <th class="col-fees">Refund Fees</th>
+                  <th class="col-fees">Extra Walmart Service Fees</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Not counted yet</h2>
+            <p class="note">
+              <strong>Created / Acknowledged</strong> orders aren't earned until you ship them, and
+              <strong>Cancelled</strong> orders never will be. Shown here for visibility, but excluded from
+              every profit number. They move into the table above on their own once Walmart marks them shipped.
+              <span id="pending-summary" class="summary-line"></span>
+            </p>
+          </div>
+          <div class="table-wrap table-wide">
+            <table id="pending-orders-table" class="orders-table hide-fees">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Order Date</th>
+                  <th>Customer Order ID</th>
+                  <th>SKU/UPC</th>
+                  <th>Product Title</th>
+                  <th>Customer Details</th>
+                  <th>Order Qty</th>
+                  <th>Unit Selling Price</th>
+                  <th>Extra Shipping</th>
+                  <th>Unit Purchase Price</th>
+                  <th>Total Selling Price</th>
+                  <th>Total Extra Shipping</th>
+                  <th>Total Purchase Price</th>
+                  <th class="col-fees">Referral Fees</th>
+                  <th class="col-fees">Label Fees</th>
+                  <th>W.House Cost</th>
+                  <th>Total Cost</th>
+                  <th>Net Profit</th>
+                  <th>Margin</th>
+                  <th>Order Status</th>
+                  <th class="col-fees">Refund Fees</th>
+                  <th class="col-fees">Extra Walmart Service Fees</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-stores" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Add a Walmart store</h2>
+            <p class="note">
+              The client secret is encrypted with your <code>WALMART_SECRET_KEY</code> before it's saved —
+              the plain secret is never stored. You're granted <strong>admin</strong> on the new store
+              automatically, so it shows up in your store picker right away.
+              Get the credentials from Walmart Seller Center → Settings → API keys.
+            </p>
+            <span id="store-status" class="sync-status" role="status" hidden></span>
+          </div>
+          <form id="store-form" class="grid-form">
+            <label>Store name <input type="text" id="store-name" required placeholder="Store B" /></label>
+            <label>Walmart client ID <input type="text" id="store-client-id" required /></label>
+            <label>Walmart client secret <input type="password" id="store-client-secret" required /></label>
+            <button type="submit">Add store</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Your stores</h2>
+            <p class="note">Only <strong>syncing</strong> stores are pulled by Refresh orders / Refresh fees.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="stores-table">
+              <colgroup>
+                <col style="width: 30%" />
+                <col style="width: 18%" />
+                <col style="width: 18%" />
+                <col style="width: 14%" />
+                <col style="width: 20%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Store</th>
+                  <th>Added</th>
+                  <th>Credentials</th>
+                  <th>Syncing</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-team" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Add or update a teammate</h2>
+            <p class="note">
+              Creates the login if it doesn't exist yet, then grants it a role on the selected store.
+              <strong>Admin</strong> can fix and delete entered rows; <strong>member</strong> can only read and add —
+              use member for anyone logging purchases, since deleting a purchase silently changes your profit.
+              If the email already has a login, the password is ignored and only the role is applied.
+            </p>
+            <span id="team-status" class="sync-status" role="status" hidden></span>
+          </div>
+          <form id="team-form" class="grid-form">
+            <label>Email <input type="email" id="team-email" required /></label>
+            <label>Temporary password <input type="password" id="team-password" placeholder="min 8 chars (new logins only)" /></label>
+            <label>Role
+              <select id="team-role">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <button type="submit">Save access</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Who has access</h2>
+            <p class="note">Only people on the stores you administer. A login with no grant sees an empty app.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="team-table">
+              <colgroup>
+                <col style="width: 34%" />
+                <col style="width: 20%" />
+                <col style="width: 14%" />
+                <col style="width: 32%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Store</th>
+                  <th>Role</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-profit" hidden>
+        <div class="card">
+          <div class="card-header">
+            <h2>Monthly Profit &amp; Loss</h2>
+            <p class="note">
+              Net profit per month, aggregated from Orders: Revenue − COGS − fees.
+              Always shows every month regardless of the <strong>Period</strong> filter — this is
+              the view for comparing months; the selected one is highlighted.
+              Fees stay $0 until Walmart settlement data lands (see <strong>Refresh fees</strong>).
+            </p>
+          </div>
+          <div class="table-wrap">
+            <table id="monthly-profit-table">
+              <colgroup>
+                <col style="width: 16%" />
+                <col style="width: 10%" />
+                <col style="width: 10%" />
+                <col style="width: 15%" />
+                <col style="width: 13%" />
+                <col style="width: 12%" />
+                <col style="width: 14%" />
+                <col style="width: 10%" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Orders</th>
+                  <th>Units</th>
+                  <th>Revenue</th>
+                  <th>COGS</th>
+                  <th>Fees</th>
+                  <th>Net Profit</th>
+                  <th>Margin</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      </div><!-- /.content -->
+      </div><!-- /.workspace -->
+      </div><!-- /.app-shell -->
+    </section>
+  </main>
+
+  <div id="order-modal" class="modal-overlay" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
+      <div class="modal-header">
+        <h3 id="order-modal-title">Order</h3>
+        <button id="order-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="order-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="edit-modal" class="modal-overlay" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+      <div class="modal-header">
+        <h3 id="edit-modal-title">Edit</h3>
+        <button id="edit-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <form id="edit-modal-form" class="modal-body">
+        <div id="edit-modal-fields" class="edit-fields"></div>
+        <p id="edit-modal-error" class="error" hidden></p>
+        <div class="modal-actions">
+          <button type="button" id="edit-modal-delete" class="btn-danger">Delete</button>
+          <button type="submit">Save changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

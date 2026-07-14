@@ -1,0 +1,104 @@
+Lucrum — Walmart Store Analytics
+Proprietary Software License
+
+Copyright (c) 2026 Mohammad Hasan <hasanibnesaleh@gmail.com>
+All rights reserved.
+
+------------------------------------------------------------------------------
+1. OWNERSHIP
+------------------------------------------------------------------------------
+
+This software, including all source code, database schemas, migrations, design
+assets, documentation, and any accompanying files (collectively, the
+"Software"), is the exclusive property of Mohammad Hasan (the "Owner"). The
+Software is protected by copyright law and international treaty provisions.
+
+The Software is licensed, not sold. No title to or ownership of the Software is
+transferred to any party under any circumstances.
+
+------------------------------------------------------------------------------
+2. NO LICENSE GRANTED
+------------------------------------------------------------------------------
+
+No rights or licenses of any kind are granted to any person or entity, whether
+express, implied, by estoppel, or otherwise. Without the prior written and
+signed permission of the Owner, no person or entity may:
+
+  (a) use, run, or execute the Software for any purpose;
+  (b) copy, reproduce, or store the Software in any medium;
+  (c) modify, adapt, translate, or create derivative works of the Software;
+  (d) merge or incorporate the Software into any other work;
+  (e) distribute, publish, sublicense, sell, rent, lease, or lend the Software;
+  (f) disclose or make the Software available to any third party;
+  (g) reverse engineer, decompile, or disassemble the Software; or
+  (h) remove, alter, or obscure this notice or any proprietary marking.
+
+Possession of a copy of the Software, by any means, does not grant any of the
+rights listed above.
+
+------------------------------------------------------------------------------
+3. PERMISSION
+------------------------------------------------------------------------------
+
+Any permission to use the Software must be granted in writing and signed by the
+Owner, and is limited strictly to the scope stated in that writing. Any such
+permission is non-exclusive, non-transferable, revocable at the Owner's sole
+discretion, and does not confer ownership. Access granted to an individual does
+not extend to their employer, contractors, affiliates, or successors.
+
+------------------------------------------------------------------------------
+4. THIRD-PARTY COMPONENTS
+------------------------------------------------------------------------------
+
+The Software depends on third-party software distributed under its own separate
+licenses. Those components remain governed by their respective licenses, and
+nothing in this license alters, restricts, or supersedes them. This license
+applies solely to the original work authored by the Owner.
+
+------------------------------------------------------------------------------
+5. DATA
+------------------------------------------------------------------------------
+
+Business data processed by the Software — including orders, costs, settlement
+records, and store credentials — is not covered by this license and remains the
+property of its respective owner. Nothing in this license grants the Owner or
+any other party any right to such data.
+
+------------------------------------------------------------------------------
+6. NO WARRANTY
+------------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, AND NONINFRINGEMENT.
+
+The Software produces financial and accounting figures for informational
+purposes only. It is not accounting, tax, or financial advice, and its output
+is not warranted to be accurate or complete.
+
+------------------------------------------------------------------------------
+7. LIMITATION OF LIABILITY
+------------------------------------------------------------------------------
+
+IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE, INCLUDING WITHOUT LIMITATION ANY LOSS OF PROFIT, REVENUE, DATA, OR
+BUSINESS INTERRUPTION.
+
+------------------------------------------------------------------------------
+8. TERMINATION
+------------------------------------------------------------------------------
+
+Any permission granted under Section 3 terminates automatically and immediately,
+without notice, upon any breach of this license. On termination, all copies of
+the Software must be destroyed.
+
+------------------------------------------------------------------------------
+9. CONTACT
+------------------------------------------------------------------------------
+
+For licensing enquiries, contact:
+
+  Mohammad Hasan
+  hasanibnesaleh@gmail.com

@@ -1,0 +1,1065 @@
+:root {
+  /* One neutral family (slate) so greys never clash with each other. */
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-sunken: #f8fafc;
+  --border: #e5e7eb;
+  --border-strong: #d4d8de;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eff6ff;
+
+  /* Colour carries meaning here, so gains/losses get their own tokens. */
+  --pos: #15803d;
+  --neg: #b91c1c;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  --header-h: 56px;
+  --rail-w: 236px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  height: var(--header-h);
+  padding: 0 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(140deg, #3b82f6, #1d4ed8);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: -0.02em;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.brand-sub {
+  color: var(--text-subtle);
+  font-weight: 400;
+}
+
+.brand-sub::before {
+  content: "· ";
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* main is a bare wrapper: the app shell runs edge-to-edge so the nav rail can sit
+   flush against the viewport, so each page section owns its own padding. */
+#login-section,
+#store-picker-section {
+  padding: 0 1.5rem;
+}
+
+/* ---------- Store chooser ---------- */
+
+.store-picker-page {
+  max-width: 900px;
+  margin: 3rem auto;
+}
+
+.store-picker-page h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.store-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* A button, not a div: keyboard + screen readers get it for free.
+   This one keeps its hover lift -- unlike the stat/content cards, it really is
+   clickable, so reacting to the cursor is honest here. */
+.store-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 1.25rem;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.store-card:hover {
+  background: var(--surface);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.store-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.store-card-meta {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* ---------- Login ---------- */
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 340px;
+  margin: 4rem auto;
+  padding: 2rem;
+}
+
+.login-card h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ---------- Form controls ---------- */
+
+input,
+select,
+button {
+  font-size: 0.875rem;
+  font-family: inherit;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+}
+
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* No hover-lift: buttons that jump under the cursor read as a demo. Weight
+   shifts through colour instead. */
+button {
+  cursor: pointer;
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid transparent;
+  font-weight: 500;
+  padding: 0.45rem 0.9rem;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+button:hover {
+  background: var(--primary-hover);
+}
+
+button:active {
+  background: #1e40af;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-sunken);
+  border-color: #b9bfc9;
+}
+
+.btn-secondary:active {
+  background: #f1f5f9;
+}
+
+.error {
+  color: var(--neg);
+  font-size: 0.85rem;
+}
+
+/* ---------- Toolbar ---------- */
+
+/* Scope on the left (what am I looking at), actions on the right (what can I do). */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+  transform: none;
+}
+
+.refresh-icon {
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-block;
+}
+
+.refresh-btn:disabled .refresh-icon {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.sync-status {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.sync-busy { color: var(--primary); }
+.sync-ok   { color: #16a34a; }
+.sync-warn { color: #b45309; }
+
+/* ---------- Banner ---------- */
+
+.banner {
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+  white-space: pre-wrap;
+}
+
+.banner-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+/* ---------- Empty state ---------- */
+
+.empty-cell {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 1.75rem 1rem;
+  white-space: normal;
+}
+
+/* Micro-label + control: reads as a field, not a sentence. */
+.store-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+
+.store-picker select {
+  min-width: 200px;
+}
+
+/* Period is a short list of months -- it doesn't need the store field's width. */
+.period-picker select {
+  min-width: 130px;
+}
+
+.note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.5;
+}
+
+/* ---------- Summary stats ---------- */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Deliberately monochrome. These were four colours of top border and four
+   colours of number, which made every figure shout equally and none of them
+   mean anything. The only stat whose colour carries information is Net Profit
+   (is it positive?), so it's the only one that gets any -- set from its sign. */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 0.95rem 1.1rem;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* Keep the display size when .pos/.neg colour it -- those set weight for table
+   cells, which would shrink this number's weight back to body text. */
+.stat-value.pos,
+.stat-value.neg {
+  font-weight: 600;
+}
+
+/* ---------- App shell ---------- */
+
+/* Rail + workspace. The rail is flush to the viewport edge and full height --
+   a floating rounded card next to the content reads like a template, not a tool. */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  align-items: start;
+}
+
+.workspace {
+  min-width: 0;
+  max-width: 1600px;
+  padding: 1.5rem 1.75rem 3rem;
+}
+
+.content {
+  min-width: 0;
+}
+
+/* ---------- Tabs (sidebar nav rail) ---------- */
+
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.9rem 0.75rem 1.5rem;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  /* Sits under the sticky header and holds its own scroll, so the nav never
+     leaves the screen no matter how long a table gets. */
+  position: sticky;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  position: relative;
+  background: none;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  box-shadow: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tab-btn:hover {
+  background: var(--surface-sunken);
+  color: var(--text);
+  box-shadow: none;
+  transform: none;
+}
+
+.tab-btn.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Indicator bleeds to the rail's left edge (matching its 0.75rem padding). */
+.tab-btn.active::before {
+  content: "";
+  position: absolute;
+  left: -0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 1.35rem;
+  border-radius: 0 2px 2px 0;
+  background: var(--primary);
+}
+
+.tab-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+}
+
+.tab-btn.active .tab-icon {
+  opacity: 1;
+}
+
+/* Group headers double as dividers so the four groups read as distinct blocks
+   rather than one long list. */
+.tab-group {
+  margin-top: 0.9rem;
+  padding: 0.8rem 0.7rem 0.4rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-subtle);
+}
+
+.tab-group:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0.2rem;
+}
+
+/* Below the breakpoint the rail becomes a horizontal strip above the content. */
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    flex-direction: row;
+    height: auto;
+    position: static;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 0.75rem;
+  }
+
+  .tab-btn {
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .tab-btn.active::before {
+    display: none;
+  }
+
+  .tab-group {
+    display: none;
+  }
+
+  .workspace {
+    padding: 1.25rem 1rem 2.5rem;
+  }
+}
+
+/* ---------- Cards ---------- */
+
+/* No hover shadow: a card isn't clickable, so reacting to the cursor is a lie. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.card-header {
+  padding: 1rem 1.25rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.card-header .note {
+  margin-top: 0.35rem;
+}
+
+/* ---------- Forms inside cards ---------- */
+
+.grid-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.9rem;
+  align-items: end;
+  padding: 1.1rem 1.25rem;
+}
+
+.grid-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* min-height, not height: a fixed height made any label too long for its
+   ~150px grid cell wrap and spill out of the box. nowrap keeps labels on one
+   line so the button grows instead of breaking. */
+.grid-form button {
+  min-height: 2.3rem;
+  align-self: end;
+  white-space: nowrap;
+}
+
+/* ---------- Tables ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-wide table {
+  table-layout: auto;
+  width: auto;
+  min-width: 100%;
+}
+
+.table-wide th,
+.table-wide td {
+  white-space: nowrap;
+  overflow: visible;
+}
+
+/* table-layout:fixed + width:100% divides space evenly however little there is,
+   so on a narrow screen an 8-column table shrank every cell to "$..." instead of
+   overflowing. This floor makes it overflow, which .table-wrap then scrolls. It
+   has to clear ~100px/column or the cells are still unreadable -- below that the
+   fix does nothing. Inert on desktop: width:100% already exceeds it.
+   Excludes .table-wide, whose tables size to content and must stay min-width:100%. */
+.table-wrap:not(.table-wide) > table {
+  min-width: 900px;
+}
+
+table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 0.6rem 1.25rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+th {
+  background: var(--surface-sunken);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-strong);
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+}
+
+/* No global zebra: row borders already separate rows, so striping every table
+   just adds noise. It's kept below for the two order tables, where 22 columns
+   of horizontal scrolling make it genuinely hard to stay on one row. */
+tbody tr {
+  transition: background 0.1s ease;
+}
+
+tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+td input[type="number"] {
+  width: 6rem;
+}
+
+.truncate {
+  cursor: help;
+}
+
+/* Cap long text (product titles, customer details). The wide tables set
+   overflow:visible + nowrap, which kills the td's ellipsis and lets the column
+   grow to the longest title -- so constrain an inner block instead, since a td
+   ignores max-width under table-layout:auto. Hover still shows the full text. */
+.truncate-inner {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.badge-green {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-amber {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.badge-gray {
+  background: #f1f3f5;
+  color: var(--text-muted);
+}
+
+/* ---------- Cost import/export + missing-cost flags ---------- */
+
+.card-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.banner-warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+input.missing-cost {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+tbody tr.row-missing-cost {
+  background: #fffbeb;
+}
+
+/* ---------- Phase 3 polish: profit coloring + Orders fee toggle ---------- */
+
+.pos { color: var(--pos); font-weight: 600; }
+.neg { color: var(--neg); font-weight: 600; }
+
+.fee-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.fee-toggle input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  accent-color: var(--primary);
+}
+
+.orders-table.hide-fees .col-fees {
+  display: none;
+}
+
+.orders-table tbody tr {
+  cursor: pointer;
+}
+
+/* Striping earns its keep only here: these two tables are 22 columns wide, and
+   scrolling sideways without it means losing your row. The rules below are an
+   equal-specificity chain, so source order decides -- stripe, then hover, then
+   the persistent selection. Don't reorder them. */
+table.orders-table tbody tr:nth-child(even) {
+  background: var(--surface-sunken);
+}
+
+table.orders-table tbody tr:hover {
+  background: #f1f5f9;
+}
+
+table.orders-table tbody tr.row-selected,
+table.orders-table tbody tr.row-selected:hover {
+  background: #dbeafe;
+}
+
+/* Profit shows every month regardless of the Period filter; this points out
+   which row the rest of the app is currently scoped to. */
+tbody tr.row-current-period,
+tbody tr.row-current-period:hover {
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+tbody tr.row-current-period td {
+  font-weight: 600;
+}
+
+table.orders-table tbody tr.row-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--primary);
+  font-weight: 600;
+}
+
+/* Counted / not-counted summary line under each Orders heading. */
+.summary-line {
+  display: block;
+  margin-top: 0.4rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- Order detail modal ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(16, 24, 40, 0.45);
+  z-index: 100;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(16, 24, 40, 0.28);
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.modal-close:hover {
+  background: none;
+  box-shadow: none;
+  transform: none;
+  color: var(--text);
+}
+
+.modal-body {
+  padding: 0.5rem 1.25rem 1.25rem;
+}
+
+.modal-body h4 {
+  margin: 1.1rem 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.modal-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 42%) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.modal-grid dt {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.modal-grid dd {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Admin CRUD ---------- */
+
+/* Action columns and the Team tab only exist for admins of the selected store. */
+body:not(.is-admin) .col-actions,
+body:not(.is-admin) .admin-only {
+  display: none;
+}
+
+.team-actions button + button {
+  margin-left: 0.4rem;
+}
+
+/* Destructive, but not shouty until you reach for it. */
+.btn-danger-outline {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.btn-danger-outline:hover {
+  background: #fef2f2;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.btn-xs {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 1px rgba(16, 24, 40, 0.04);
+  cursor: pointer;
+}
+
+.btn-xs:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-danger {
+  background: #b91c1c;
+  color: #fff;
+  border: none;
+  box-shadow: none;
+}
+
+.btn-danger:hover {
+  background: #991b1b;
+  box-shadow: none;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.edit-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.edit-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ---------- Readability: field titles + typed text ---------- */
+/* Labels were muted grey and inputs were white-on-white, so both faded into
+   the card. Darken the titles, strengthen typed text, and make the field
+   boundary + focus ring obvious. Applies to every form in the app. */
+
+.login-card label,
+.grid-form label,
+.edit-fields label,
+.store-picker {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+input,
+select {
+  color: var(--text);
+  font-weight: 500;
+  border-color: #cfd5de;
+}
+
+input::placeholder {
+  color: #9aa1ad;
+  font-weight: 400;
+}
+
+input:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: #b6bec9;
+}
+
+/* Obvious focus: the old ring used --primary-soft (#eef2ff) and was invisible. */
+input:focus,
+select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+/* Keep the fee checkbox from inheriting the field border/weight. */
+.fee-toggle input[type="checkbox"] {
+  border: none;
+  font-weight: 400;
+}
