@@ -236,32 +236,44 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                     store_id, date, "revenue_shipping", line["shipping_revenue"],
                     sku=sku, quantity=qty, src=src))
 
+            def flag(reason):
+                result.uncosted.append({
+                    "store_id": store_id, "source_id": src, "sku": sku,
+                    "quantity": qty, "sale_date": date.isoformat(),
+                    "reason": reason,
+                })
+
             cogs, reason = b.sell(qty)
             if cogs is None:
-                manual = costs_by_sku.get(sku)
-                if manual and manual.get("unit_cost") is not None:
-                    cogs = qty * manual["unit_cost"]
+                manual = costs_by_sku.get(sku) or {}
+                unit = manual.get("unit_cost") or 0
+                if unit > 0:
+                    # A placeholder still posts COGS -- otherwise the P&L is
+                    # empty -- but it is flagged, so the number never renders as
+                    # if it were known. Estimated is a third state, distinct
+                    # from both known and unknown.
+                    estimated = bool(manual.get("is_placeholder"))
+                    cogs = qty * unit
                     result.entries.append(_entry(
-                        store_id, date, "cogs", -cogs, sku=sku, quantity=qty,
-                        src=src, note="manual unit cost"))
+                        store_id, date, "cogs", -cogs, sku=sku, quantity=qty, src=src,
+                        note="estimated placeholder cost" if estimated else "manual unit cost"))
                     cogs_by_source[src] = cogs
+                    if estimated:
+                        flag("estimated_cost")
+                elif manual:
+                    # A stored cost of 0.00 is a row somebody never filled in,
+                    # not a free product. Treating it as known would report the
+                    # entire sale price as profit.
+                    flag("zero_cost")
                 else:
-                    result.uncosted.append({
-                        "store_id": store_id, "source_id": src, "sku": sku,
-                        "quantity": qty, "sale_date": date.isoformat(),
-                        "reason": "no_purchase_history",
-                    })
+                    flag("no_purchase_history")
             else:
                 result.entries.append(_entry(
                     store_id, date, "cogs", -cogs, sku=sku, quantity=qty, src=src,
                     note=reason))
                 cogs_by_source[src] = cogs
                 if reason:
-                    result.uncosted.append({
-                        "store_id": store_id, "source_id": src, "sku": sku,
-                        "quantity": qty, "sale_date": date.isoformat(),
-                        "reason": reason,
-                    })
+                    flag(reason)
 
             wh = (costs_by_sku.get(sku) or {}).get("warehouse_cost") or 0
             if wh:

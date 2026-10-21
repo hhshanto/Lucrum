@@ -68,7 +68,8 @@ def main():
         purchases = fetch_all(sb, "purchases",
                               "id,sku,quantity,unit_cost,sales_tax,shipping,"
                               "purchase_date,created_at", store_id=store_id)
-        costs = fetch_all(sb, "product_costs", "sku,unit_cost,warehouse_cost",
+        costs = fetch_all(sb, "product_costs",
+                          "sku,unit_cost,warehouse_cost,is_placeholder",
                           store_id=store_id)
         settlement = fetch_all(sb, "settlement_lines",
                                "report_date,customer_order_id,sku,amount_type,amount",

@@ -19,9 +19,16 @@
 -- the placeholder is ignored automatically. Running this deletes them outright,
 -- returning those SKUs to an honest "no cost known" state.
 --
--- The warehouse_cost = 0 guard below is deliberate: every genuine product_costs
--- row in this database has a non-zero warehouse_cost, so the guard prevents this
--- from ever deleting real data even if a SKU name is reused later.
+-- CORRECTION: an earlier version of this comment claimed every genuine
+-- product_costs row has a non-zero warehouse_cost. That is false -- 54 rows have
+-- warehouse_cost = 0 while only 52 are placeholders, so two genuine rows share
+-- the trait. The explicit SKU list below is what makes this safe; the
+-- warehouse_cost guard is only a second line of defence.
+--
+-- Since migration_a3_cost_quality.sql there is a better option: those rows are
+-- now marked is_placeholder = true, so you can simply run
+--     delete from product_costs where is_placeholder;
+-- and the SKU list below is kept only for reference.
 
 delete from product_costs
 where warehouse_cost = 0

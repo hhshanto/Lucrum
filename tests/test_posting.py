@@ -340,3 +340,49 @@ def test_fees_netting_to_zero_are_not_posted():
         fee_category_map=FEE_MAP,
     )
     assert [e for e in result.entries if e["entry_type"] == "fee_label"] == []
+
+# ------------------------------------------- estimated vs zero vs unknown
+
+def test_zero_stored_cost_is_treated_as_unknown_not_free():
+    """A product_costs row of 0.00 is an unfilled row, not a free product.
+    Nine genuine rows in the live database look like this."""
+    result = run(
+        order_lines=[line(qty=2, revenue=50.0)],
+        purchases=[],
+        product_costs=[{"sku": "SKU1", "unit_cost": 0, "warehouse_cost": 1.5}],
+    )
+    assert amounts(result, "cogs") == []
+    assert result.uncosted[0]["reason"] == "zero_cost"
+
+
+def test_placeholder_cost_posts_cogs_but_is_flagged():
+    result = run(
+        order_lines=[line(qty=2, revenue=50.0)],
+        purchases=[],
+        product_costs=[{"sku": "SKU1", "unit_cost": 10.0, "warehouse_cost": 0,
+                        "is_placeholder": True}],
+    )
+    assert amounts(result, "cogs") == [-20.0]
+    assert result.uncosted[0]["reason"] == "estimated_cost"
+
+
+def test_real_manual_cost_is_not_flagged():
+    result = run(
+        order_lines=[line(qty=2, revenue=50.0)],
+        purchases=[],
+        product_costs=[{"sku": "SKU1", "unit_cost": 10.0, "warehouse_cost": 1.5,
+                        "is_placeholder": False}],
+    )
+    assert amounts(result, "cogs") == [-20.0]
+    assert result.uncosted == []
+
+
+def test_real_purchases_beat_a_placeholder_and_clear_the_flag():
+    result = run(
+        order_lines=[line(qty=1, revenue=50.0)],
+        purchases=[purchase(qty=5, unit=6.0, date="2026-06-01")],
+        product_costs=[{"sku": "SKU1", "unit_cost": 99.0, "warehouse_cost": 0,
+                        "is_placeholder": True}],
+    )
+    assert amounts(result, "cogs") == [-6.0]
+    assert result.uncosted == []
