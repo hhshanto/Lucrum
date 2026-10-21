@@ -1169,7 +1169,9 @@ function rollUpBySku(rows) {
     prev.cogs           = Number(prev.cogs)           + Number(row.cogs || 0);
     prev.fees           = Number(prev.fees)           + Number(row.fees || 0);
     prev.net_profit     = Number(prev.net_profit)     + Number(row.net_profit || 0);
-    prev.uncosted_lines = Number(prev.uncosted_lines || 0) + Number(row.uncosted_lines || 0);
+    prev.uncosted_lines  = Number(prev.uncosted_lines || 0)  + Number(row.uncosted_lines || 0);
+    prev.unknown_lines   = Number(prev.unknown_lines || 0)   + Number(row.unknown_lines || 0);
+    prev.estimated_lines = Number(prev.estimated_lines || 0) + Number(row.estimated_lines || 0);
   }
   // Round once at the end: rounding each month first would drift the total.
   for (const row of bySku.values()) {
@@ -1210,18 +1212,36 @@ function renderDashboard(profitRows, productRows) {
   }
   if (!profit.length) renderEmpty(profitTableBody, 8, "No sales yet - click Refresh orders to pull from Walmart.");
 
-  // Unknown is not zero. The old copy here said uncosted SKUs "count as $0.00
-  // profit", which is the exact confusion this rebuild removes: a SKU whose
-  // cost we don't know is not a SKU that broke even.
-  const soldMissing = profit.filter((r) => !r.is_complete);
-  if (soldMissing.length) {
-    const excludedRevenue = soldMissing.reduce((sum, r) => sum + Number(r.revenue || 0), 0);
-    const missingLines = soldMissing.reduce((sum, r) => sum + Number(r.uncosted_lines || 0), 0);
-    costWarning.textContent =
-      `${soldMissing.length} of ${profit.length} sold product(s) have no buying price `
-      + `(${missingLines} order line(s), ${fmtMoney(excludedRevenue)} of revenue). `
-      + `Their profit is UNKNOWN, not zero - totals below are a lower bound. `
-      + `Log a purchase for them, or set a cost on the Products tab.`;
+  // Three cost states, two of which make a total a lower bound -- but they need
+  // different action, so they get different sentences. "Unknown" wants a
+  // purchase logged; "estimated" wants a guess replaced. Lumping them together
+  // as "no buying price" was wrong for the estimated half: a price exists
+  // there, it just isn't real.
+  const unknown   = profit.filter((r) => Number(r.unknown_lines || 0) > 0);
+  const estimated = profit.filter((r) => Number(r.estimated_lines || 0) > 0);
+
+  if (unknown.length || estimated.length) {
+    const revenueOf = (rows) => rows.reduce((sum, r) => sum + Number(r.revenue || 0), 0);
+    const linesOf = (rows, key) => rows.reduce((sum, r) => sum + Number(r[key] || 0), 0);
+    const parts = [];
+
+    if (unknown.length) {
+      parts.push(
+        `${unknown.length} product(s) have NO known cost `
+        + `(${linesOf(unknown, "unknown_lines")} line(s), `
+        + `${fmtMoney(revenueOf(unknown))} of revenue). Their profit is unknown, not zero - `
+        + `log a purchase, or set a cost on the Products tab.`);
+    }
+    if (estimated.length) {
+      parts.push(
+        `${estimated.length} product(s) use an ESTIMATED placeholder cost `
+        + `(${linesOf(estimated, "estimated_lines")} line(s), `
+        + `${fmtMoney(revenueOf(estimated))} of revenue). These are guesses, not your `
+        + `real buying prices - logging actual purchases replaces them automatically.`);
+    }
+    parts.push("Totals below are a lower bound and margins are hidden until costs are real.");
+
+    costWarning.textContent = parts.join(" ");
     costWarning.hidden = false;
   } else {
     costWarning.hidden = true;
@@ -1590,6 +1610,17 @@ async function setStoreActive(store, active) {
   }
 }
 
+// Why a margin is withheld. Naming the reason makes it actionable -- "estimated"
+// means replace a guess, "no cost" means log a purchase.
+function marginBlockedLabel(row) {
+  const unknown = Number(row.unknown_lines || 0);
+  const estimated = Number(row.estimated_lines || 0);
+  if (unknown && estimated) return `${unknown} no cost, ${estimated} estimated`;
+  if (unknown) return `${unknown} no cost`;
+  if (estimated) return `${estimated} estimated`;
+  return `${row.uncosted_lines || 0} uncosted`;
+}
+
 function renderMonthlyProfit(rows) {
   const sorted = [...rows].sort((a, b) => (b.month ?? "").localeCompare(a.month ?? ""));
   // This tab ignores the Period filter on purpose -- it exists to compare months.
@@ -1611,11 +1642,17 @@ function renderMonthlyProfit(rows) {
       {
         text: row.margin_pct != null
           ? `${fmtNum(row.margin_pct)}%`
-          : `${row.uncosted_lines || 0} uncosted`,
+          : marginBlockedLabel(row),
         cls: row.margin_pct != null ? signClass(row.margin_pct) : "muted",
       },
     ]);
-    if (!complete) tr.title = `${row.uncosted_lines} of ${row.lines} lines have no known cost.`;
+    if (!complete) {
+      const bits = [];
+      if (row.unknown_lines) bits.push(`${row.unknown_lines} with no known cost`);
+      if (row.estimated_lines) bits.push(`${row.estimated_lines} using an estimated cost`);
+      tr.title = `${row.lines} line(s) this month: ${bits.join(", ")}. `
+        + `Net profit is a lower bound; margin is hidden until costs are real.`;
+    }
     if (selected && String(row.month ?? "").slice(0, 7) === selected) {
       tr.classList.add("row-current-period");
     }
@@ -1636,11 +1673,17 @@ function updateSummary(profitRows, productRows) {
   // The only summary figure whose colour means anything: are we up or down?
   // When any SKU is uncosted the total is a LOWER BOUND, so it is prefixed with
   // "≥". A bare number here would claim a precision the data does not have.
-  const incomplete = profitRows.some((row) => row.is_complete === false);
+  const unknownLines = profitRows.reduce((sum, r) => sum + Number(r.unknown_lines || 0), 0);
+  const estimatedLines = profitRows.reduce((sum, r) => sum + Number(r.estimated_lines || 0), 0);
+  const incomplete = unknownLines > 0 || estimatedLines > 0;
+
   const profitEl = document.getElementById("stat-profit");
   profitEl.textContent = (incomplete ? "≥ " : "") + fmtMoney(totalProfit);
+  const why = [];
+  if (unknownLines) why.push(`${unknownLines} line(s) have no known cost`);
+  if (estimatedLines) why.push(`${estimatedLines} line(s) use an estimated cost`);
   profitEl.title = incomplete
-    ? "Lower bound: some sold SKUs have no known cost, so their profit is unknown."
+    ? `Lower bound: ${why.join(" and ")}. The real figure is not yet knowable.`
     : "";
   profitEl.className = `stat-value ${signClass(totalProfit)}`.trim();
 }
