@@ -163,7 +163,7 @@ const modules = {
   },
   profit: {
     tables: ["ledger_summary"],
-    skeleton: [[monthlyProfitTableBody, 8]],
+    skeleton: [[monthlyProfitTableBody, 9]],
     render: (d) => renderMonthlyProfit(d.ledger_summary),
   },
   // Team reads through our own server: listing emails and creating logins needs
@@ -1610,15 +1610,20 @@ async function setStoreActive(store, active) {
   }
 }
 
-// Why a margin is withheld. Naming the reason makes it actionable -- "estimated"
-// means replace a guess, "no cost" means log a purchase.
+// Why a margin is withheld. Naming the reason makes it actionable: "unsettled"
+// resolves itself when Walmart's recon file arrives, "no cost" needs a purchase
+// logged. A bare "uncertain" would tell you nothing about what to do.
 function marginBlockedLabel(row) {
   const unknown = Number(row.unknown_lines || 0);
   const estimated = Number(row.estimated_lines || 0);
-  if (unknown && estimated) return `${unknown} no cost, ${estimated} estimated`;
+  const lines = Number(row.lines || 0);
+  if (unknown && estimated) return `${unknown} no cost, ${estimated} est.`;
   if (unknown) return `${unknown} no cost`;
-  if (estimated) return `${estimated} estimated`;
-  return `${row.uncosted_lines || 0} uncosted`;
+  // Every line estimated means the whole month is awaiting settlement, which is
+  // a different situation from a handful of stragglers.
+  if (estimated && lines && estimated >= lines) return "unsettled";
+  if (estimated) return `${estimated} est.`;
+  return `${row.uncosted_lines || 0} uncertain`;
 }
 
 function renderMonthlyProfit(rows) {
@@ -1628,9 +1633,12 @@ function renderMonthlyProfit(rows) {
   const selected = periodSelect.value !== "all" ? periodSelect.value : null;
   monthlyProfitTableBody.innerHTML = "";
   for (const row of sorted) {
-    // ledger_summary nulls margin_pct whenever the month has uncosted lines,
-    // and the net is then a lower bound rather than a figure.
+    // A month is "complete" only when every fee is settled and every cost known.
+    // Until then net is a RANGE, not a figure, and the margin is withheld --
+    // net_low/net_high come from the observed spread between what the workbook
+    // records and what Walmart actually charged.
     const complete = row.is_complete !== false;
+    const estimated = Number(row.estimated_fees || 0) > 0;
     const tr = renderRow([
       { text: fmtMonth(row.month) },
       { num: row.orders },
@@ -1638,12 +1646,18 @@ function renderMonthlyProfit(rows) {
       { money: row.revenue },
       { money: row.cogs },
       { money: row.fees },
-      { text: (complete ? "" : "≥ ") + fmtMoney(row.net_profit), cls: signClass(row.net_profit) },
+      { money: row.returns, cls: Number(row.returns) ? "negative" : "muted" },
       {
-        text: row.margin_pct != null
+        text: estimated
+          ? `${fmtMoney(row.net_low)} – ${fmtMoney(row.net_high)}`
+          : fmtMoney(row.net_profit),
+        cls: signClass(row.net_profit),
+      },
+      {
+        text: complete && row.margin_pct != null
           ? `${fmtNum(row.margin_pct)}%`
           : marginBlockedLabel(row),
-        cls: row.margin_pct != null ? signClass(row.margin_pct) : "muted",
+        cls: complete && row.margin_pct != null ? signClass(row.margin_pct) : "muted",
       },
     ]);
     if (!complete) {
@@ -1658,7 +1672,7 @@ function renderMonthlyProfit(rows) {
     }
     monthlyProfitTableBody.appendChild(tr);
   }
-  if (!sorted.length) renderEmpty(monthlyProfitTableBody, 8, "No sales yet - click Refresh orders to pull from Walmart.");
+  if (!sorted.length) renderEmpty(monthlyProfitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
 }
 
 function updateSummary(profitRows, productRows) {

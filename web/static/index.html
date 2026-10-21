@@ -645,23 +645,26 @@
           <div class="card-header">
             <h2>Monthly Profit &amp; Loss</h2>
             <p class="note">
-              Net profit per month, aggregated from Orders: Revenue − COGS − fees.
-              Always shows every month regardless of the <strong>Period</strong> filter — this is
+              Net profit per month, summed from the ledger: Revenue - COGS - fees - returns.
+              Always shows every month regardless of the <strong>Period</strong> filter - this is
               the view for comparing months; the selected one is highlighted.
-              Fees stay $0 until Walmart settlement data lands (see <strong>Refresh fees</strong>).
+              A month whose fees are not yet settled shows its net as a <strong>range</strong>
+              and withholds the margin, because those figures are estimates until
+              Walmart's recon file arrives.
             </p>
           </div>
           <div class="table-wrap">
             <table id="monthly-profit-table">
               <colgroup>
-                <col style="width: 16%" />
-                <col style="width: 10%" />
-                <col style="width: 10%" />
-                <col style="width: 15%" />
+                <col style="width: 14%" />
+                <col style="width: 8%" />
+                <col style="width: 8%" />
                 <col style="width: 13%" />
                 <col style="width: 12%" />
+                <col style="width: 11%" />
+                <col style="width: 11%" />
                 <col style="width: 14%" />
-                <col style="width: 10%" />
+                <col style="width: 9%" />
               </colgroup>
               <thead>
                 <tr>
@@ -671,6 +674,7 @@
                   <th>Revenue</th>
                   <th>COGS</th>
                   <th>Fees</th>
+                  <th>Returns</th>
                   <th>Net Profit</th>
                   <th>Margin</th>
                 </tr>
