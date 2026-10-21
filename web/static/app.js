@@ -102,6 +102,7 @@ const syncTableBody = document.querySelector("#sync-table tbody");
 const unmappedTableBody = document.querySelector("#unmapped-table tbody");
 const feeMapTableBody = document.querySelector("#feemap-table tbody");
 const calibrationTableBody = document.querySelector("#calibration-table tbody");
+const disagreementsTableBody = document.querySelector("#disagreements-table tbody");
 const periodsTableBody = document.querySelector("#periods-table tbody");
 
 const purchaseForm = document.getElementById("purchase-form");
@@ -198,9 +199,9 @@ const modules = {
     render: (d) => renderSyncHealth(d.sync_health),
   },
   fees: {
-    tables: ["unmapped_amount_types", "fee_category_map", "fee_calibration"],
-    skeleton: [[unmappedTableBody, 5], [feeMapTableBody, 3], [calibrationTableBody, 6]],
-    render: (d) => renderFeeMap(d.unmapped_amount_types, d.fee_category_map, d.fee_calibration),
+    tables: ["unmapped_amount_types", "fee_category_map", "fee_calibration", "fee_label_disagreements"],
+    skeleton: [[unmappedTableBody, 5], [feeMapTableBody, 3], [calibrationTableBody, 6], [disagreementsTableBody, 6]],
+    render: (d) => renderFeeMap(d.unmapped_amount_types, d.fee_category_map, d.fee_calibration, d.fee_label_disagreements),
   },
   periods: {
     tables: ["period_close_readiness"],
@@ -601,6 +602,7 @@ const DATE_COLUMN = {
   unmapped_amount_types: null,
   fee_category_map: null,
   fee_calibration: null,
+  fee_label_disagreements: null,
   period_close_readiness: null,
 };
 
@@ -1887,7 +1889,7 @@ const FEE_CATEGORY_LABEL = {
   return_revenue: "reverses revenue (refund)",
 };
 
-function renderFeeMap(unmapped, mapping, calibration) {
+function renderFeeMap(unmapped, mapping, calibration, disagreements) {
   unmappedTableBody.innerHTML = "";
   for (const row of unmapped || []) {
     const tr = renderRow([
@@ -1940,6 +1942,29 @@ function renderFeeMap(unmapped, mapping, calibration) {
   if (!(calibration || []).length) {
     renderEmpty(calibrationTableBody, 6,
       "No settled lines to compare against yet - estimates post uncalibrated.");
+  }
+
+  // Sorted by how far apart they are proportionally, not by dollars: a 20c gap
+  // on a $6 label is a bigger signal than 20c on $60.
+  const gaps = [...(disagreements || [])].sort((a, b) =>
+    Math.abs(Number(b.ratio || 1) - 1) - Math.abs(Number(a.ratio || 1) - 1));
+  disagreementsTableBody.innerHTML = "";
+  for (const row of gaps.slice(0, 100)) {
+    disagreementsTableBody.appendChild(renderRow([
+      { text: row.customer_order_id },
+      { text: row.sku },
+      { money: row.settlement_label },
+      { money: row.workbook_label },
+      { money: row.difference, cls: signClass(row.difference) },
+      { text: row.ratio != null ? fmtNum(row.ratio) : "-", cls: "muted" },
+    ]));
+  }
+  if (!gaps.length) {
+    renderEmpty(disagreementsTableBody, 6,
+      "Your workbook agrees with Walmart on every settled label.");
+  } else if (gaps.length > 100) {
+    renderEmpty(disagreementsTableBody, 6,
+      `... and ${gaps.length - 100} more (showing the 100 furthest apart)`);
   }
 }
 
