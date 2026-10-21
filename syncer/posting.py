@@ -175,7 +175,7 @@ def _entry(store_id, date, entry_type, amount, *, sku=None, quantity=None,
 
 
 def post(store_id, orders, order_lines, purchases, product_costs,
-         settlement_lines=(), fee_category_map=()) -> PostingResult:
+         settlement_lines=(), fee_category_map=(), line_costs=()) -> PostingResult:
     """Build every ledger entry implied by the given facts.
 
     Pure. Call it twice with the same inputs and you get the same output, which
@@ -184,6 +184,10 @@ def post(store_id, orders, order_lines, purchases, product_costs,
     result = PostingResult()
     orders_by_po = {o["purchase_order_id"]: o for o in orders}
     costs_by_sku = {c["sku"]: c for c in product_costs}
+    # Specific identification: the actual cost of the actual item sold. For
+    # buy-to-order arbitrage this beats any averaging, so it outranks the
+    # moving average from purchases.
+    line_cost_by_source = {c["source_id"]: c for c in line_costs}
 
     # --- build one chronological event stream per sku -------------------
     events = []
@@ -242,6 +246,28 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                     "quantity": qty, "sale_date": date.isoformat(),
                     "reason": reason,
                 })
+
+            exact = line_cost_by_source.get(src)
+            if exact:
+                # Known actual cost for THIS line. Still consume inventory so
+                # the running average stays honest for lines that fall through
+                # to it.
+                b.sell(qty)
+                cogs = qty * exact["unit_cost"]
+                result.entries.append(_entry(
+                    store_id, date, "cogs", -cogs, sku=sku, quantity=qty, src=src,
+                    note=f"line cost ({exact.get('basis')})"))
+                cogs_by_source[src] = cogs
+                if exact.get("basis") == "sku_imputed":
+                    # The SKU's recorded costs disagree, so this line's figure
+                    # is a median rather than its own price.
+                    flag("estimated_cost")
+                wh = (costs_by_sku.get(sku) or {}).get("warehouse_cost") or 0
+                if wh:
+                    result.entries.append(_entry(
+                        store_id, date, "warehouse", -(qty * wh),
+                        sku=sku, quantity=qty, src=src))
+                continue
 
             cogs, reason = b.sell(qty)
             if cogs is None:

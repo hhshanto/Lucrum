@@ -76,11 +76,14 @@ def main():
                                store_id=store_id)
         fee_map = fetch_all(sb, "fee_category_map", "amount_type,category",
                             store_id=store_id)
+        line_costs = fetch_all(sb, "order_line_costs", "source_id,sku,unit_cost,basis",
+                               store_id=store_id)
 
         print(f"  inputs: {len(orders)} orders, {len(lines)} lines, "
               f"{len(purchases)} purchases, {len(settlement)} settlement rows")
 
-        result = post(store_id, orders, lines, purchases, costs, settlement, fee_map)
+        result = post(store_id, orders, lines, purchases, costs, settlement, fee_map,
+                      line_costs=line_costs)
 
         print(f"  {len(result.entries)} entries, {len(result.uncosted)} uncosted lines")
         for entry_type, total in sorted(result.totals().items()):

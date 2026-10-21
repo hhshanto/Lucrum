@@ -386,3 +386,64 @@ def test_real_purchases_beat_a_placeholder_and_clear_the_flag():
     )
     assert amounts(result, "cogs") == [-6.0]
     assert result.uncosted == []
+
+# --------------------------------------------- exact per-line costs (A4)
+
+def lc(po="PO1", n="1", sku="SKU1", unit=7.0, basis="exact"):
+    return {"source_id": f"{po}:{n}", "sku": sku, "unit_cost": unit, "basis": basis}
+
+
+def test_exact_line_cost_beats_the_moving_average():
+    """Specific identification: the actual cost of the actual item sold."""
+    result = run(
+        order_lines=[line(qty=2, revenue=60.0)],
+        purchases=[purchase(qty=10, unit=5.0, date="2026-06-01")],
+        line_costs=[lc(unit=7.0)],
+    )
+    assert amounts(result, "cogs") == [-14.0]
+    assert result.uncosted == []
+
+
+def test_exact_line_cost_beats_a_placeholder():
+    result = run(
+        order_lines=[line(qty=1, revenue=60.0)],
+        purchases=[],
+        product_costs=[{"sku": "SKU1", "unit_cost": 99.0, "warehouse_cost": 0,
+                        "is_placeholder": True}],
+        line_costs=[lc(unit=4.25)],
+    )
+    assert amounts(result, "cogs") == [-4.25]
+    assert result.uncosted == []
+
+
+def test_sku_single_basis_counts_as_known():
+    """Every spreadsheet row for the SKU agreed, so the cost is not in doubt."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc(unit=3.0, basis="sku_single")])
+    assert amounts(result, "cogs") == [-3.0]
+    assert result.uncosted == []
+
+
+def test_sku_imputed_basis_is_flagged_estimated():
+    """The SKU's recorded costs disagree, so a median was used."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc(unit=3.0, basis="sku_imputed")])
+    assert amounts(result, "cogs") == [-3.0]
+    assert result.uncosted[0]["reason"] == "estimated_cost"
+
+
+def test_exact_line_cost_still_consumes_inventory():
+    """Otherwise a later line falling through to the average would see stock
+    that was already sold."""
+    result = post(
+        store_id="S",
+        orders=[order(po="PO1"), order(po="PO2")],
+        order_lines=[line(po="PO1", n="1", qty=10, revenue=50.0),
+                     line(po="PO2", n="1", qty=10, revenue=50.0)],
+        purchases=[purchase(qty=10, unit=5.0, date="2026-06-01")],
+        product_costs=[],
+        line_costs=[lc(po="PO1", unit=7.0)],
+    )
+    cogs = amounts(result, "cogs")
+    assert -70.0 in cogs                      # PO1 at its exact cost
+    assert len([c for c in cogs if c == -50.0]) == 0   # PO2 cannot reuse the stock
