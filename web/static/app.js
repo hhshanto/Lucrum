@@ -1240,9 +1240,19 @@ function renderDashboard(profitRows, productRows) {
 
   profitTableBody.innerHTML = "";
   for (const row of profit) {
+    // Opened by sku rather than by line: this row already aggregates every
+    // sale of that sku, so the drawer should too.
+    const openSku = () => openEntryDrawer({
+      title: row.sku,
+      subtitle: `${row.product_name || ""} - every ledger entry for this SKU`.trim(),
+      sku: row.sku,
+    });
     // unit_cost is the EFFECTIVE cost the view used: landed cost from purchases
     // when the SKU has any, otherwise the manual Products cost. null = none.
-    profitTableBody.appendChild(renderProfitRow(row, row.unit_cost ?? 0, row.unit_cost != null));
+    const tr = renderProfitRow(row, row.unit_cost ?? 0, row.unit_cost != null);
+    tr.classList.add("drillable");
+    tr.addEventListener("click", openSku);
+    profitTableBody.appendChild(tr);
   }
   if (!profit.length) renderEmpty(profitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
 
@@ -1363,12 +1373,28 @@ function renderOrderDetails(orderDetailRows) {
   const counted = rows.filter((r) => r.counts_in_profit);
   const pending = rows.filter((r) => !r.counts_in_profit);
 
+  // Make every line openable. The drawer needs the order line's own key plus
+  // the customer order, because fees and refunds are keyed by the latter.
+  const drillable = (tr, row) => {
+    tr.classList.add("drillable");
+    tr.addEventListener("click", () => openEntryDrawer({
+      title: `${row.sku} - order ${row.customer_order_id}`,
+      subtitle: `${row.product_name || ""} - ${row.order_status || ""}`.trim(),
+      sourceId: row.source_id,
+      customerOrderId: row.customer_order_id,
+      sku: row.sku,
+    }));
+    return tr;
+  };
+
   orderDetailsTableBody.innerHTML = "";
-  counted.forEach((row, i) => orderDetailsTableBody.appendChild(renderOrderDetailRow(row, i + 1)));
+  counted.forEach((row, i) =>
+    orderDetailsTableBody.appendChild(drillable(renderOrderDetailRow(row, i + 1), row)));
   if (!counted.length) renderEmpty(orderDetailsTableBody, 22, "No shipped or delivered orders yet.");
 
   pendingOrdersTableBody.innerHTML = "";
-  pending.forEach((row, i) => pendingOrdersTableBody.appendChild(renderOrderDetailRow(row, i + 1)));
+  pending.forEach((row, i) =>
+    pendingOrdersTableBody.appendChild(drillable(renderOrderDetailRow(row, i + 1), row)));
   if (!pending.length) renderEmpty(pendingOrdersTableBody, 22, "Nothing pending - every order is shipped or delivered.");
 
   const sum = (list) => list.reduce((s, r) => s + Number(r.net_profit || 0), 0);
@@ -1707,6 +1733,102 @@ function renderMonthlyProfit(rows) {
     monthlyProfitTableBody.appendChild(tr);
   }
   if (!sorted.length) renderEmpty(monthlyProfitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
+}
+
+// ---- Drill-down drawer ---------------------------------------------------
+// Every figure in this app is a sum of ledger rows. Being able to open one and
+// see "fee_referral -9.32, settlement, 2026-09-08" is what separates a number
+// you can check from one you have to trust. Most of the bugs found while
+// building this produced *plausible* wrong numbers, which is exactly the class
+// a drill-down catches.
+
+const entryDrawer = document.getElementById("entry-drawer");
+const drawerScrim = document.getElementById("drawer-scrim");
+const drawerTitle = document.getElementById("drawer-title");
+const drawerSubtitle = document.getElementById("drawer-subtitle");
+const drawerTableBody = document.querySelector("#drawer-table tbody");
+const drawerTotal = document.getElementById("drawer-total");
+
+const ENTRY_LABEL = {
+  revenue_product: "Product revenue",
+  revenue_shipping: "Shipping revenue",
+  cogs: "Cost of goods",
+  warehouse: "Warehouse / handling",
+  fee_referral: "Walmart referral fee",
+  fee_label: "Walmart shipping label",
+  fee_label_3p: "Third-party label",
+  fee_refund: "Refund fee",
+  fee_other: "Other Walmart fee",
+  return_revenue: "Refund - revenue reversed",
+  return_cogs: "Refund - cost reversed",
+  damage: "Damaged stock",
+  correction: "Prior-period correction",
+};
+
+function closeDrawer() {
+  entryDrawer.hidden = true;
+  drawerScrim.hidden = true;
+}
+
+drawerScrim?.addEventListener("click", closeDrawer);
+document.getElementById("drawer-close")?.addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !entryDrawer.hidden) closeDrawer();
+});
+
+async function openEntryDrawer({ title, subtitle, sourceId, customerOrderId, sku }) {
+  drawerTitle.textContent = title;
+  drawerSubtitle.textContent = subtitle || "";
+  drawerTableBody.innerHTML = "";
+  drawerTotal.textContent = "";
+  entryDrawer.hidden = false;
+  drawerScrim.hidden = false;
+
+  try {
+    let query = supabaseClient.from("ledger_entries").select("*");
+    if (storeSelect.value) query = query.eq("store_id", storeSelect.value);
+    if (sourceId && customerOrderId) {
+      // A line's own entries are keyed by "{po}:{line}", but its fees and
+      // refunds arrive from settlement keyed by customer order -- so both have
+      // to be asked for, or the drawer would show revenue with no fees.
+      query = query.or(`source_id.eq.${sourceId},source_id.like.*:${customerOrderId}:*`);
+      if (sku) query = query.or(`sku.eq.${sku},sku.is.null`);
+    } else if (sourceId) {
+      query = query.eq("source_id", sourceId);
+    } else if (sku) {
+      query = query.eq("sku", sku);
+    }
+    const { data, error } = await query.order("entry_date").limit(500);
+    if (error) throw error;
+
+    const rows = data || [];
+    for (const entry of rows) {
+      const estimated = entry.source_kind === "manual"
+        && ["fee_referral", "fee_label"].includes(entry.entry_type);
+      const tr = renderRow([
+        { text: entry.entry_date },
+        { text: ENTRY_LABEL[entry.entry_type] || entry.entry_type },
+        { money: entry.amount, cls: signClass(entry.amount) },
+        { text: entry.source_kind + (estimated ? " (estimate)" : "") },
+      ]);
+      if (estimated) tr.classList.add("entry-estimated");
+      // The note carries the calibration ratio and the cost basis, which is
+      // where an unexpected figure usually explains itself.
+      if (entry.note) tr.title = entry.note;
+      if (entry.effective_for && entry.effective_for !== entry.entry_date) {
+        tr.title = `${tr.title ? tr.title + " - " : ""}effective for ${entry.effective_for}`;
+      }
+      drawerTableBody.appendChild(tr);
+    }
+    if (!rows.length) {
+      renderEmpty(drawerTableBody, 4, "No ledger entries - this line has not realized yet.");
+    }
+    const net = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    drawerTotal.textContent = fmtMoney(net);
+    drawerTotal.className = signClass(net);
+  } catch (err) {
+    renderEmpty(drawerTableBody, 4, `Could not load entries: ${err.message || err}`);
+  }
 }
 
 // ---- Health surfaces -----------------------------------------------------

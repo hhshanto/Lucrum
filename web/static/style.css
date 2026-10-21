@@ -1075,3 +1075,61 @@ select:focus {
 /* Dim a cell that carries no signal -- an empty Returns column should recede
    rather than read as a meaningful zero. */
 .muted { color: var(--text-muted); }
+
+/* ---- Drill-down drawer -------------------------------------------------
+   Slides in from the right rather than opening a modal: the row you clicked
+   stays visible, so you can see the number and its explanation together. */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 40;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(44rem, 94vw);
+  background: var(--surface, #fff);
+  border-left: 1px solid var(--border, #e2e8f0);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.14);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer[hidden] { display: none; }
+.drawer-scrim[hidden] { display: none; }
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+.drawer-head h3 { margin: 0 0 0.2rem; font-size: 1.05rem; }
+.drawer-head .note { margin: 0; }
+
+.drawer-body {
+  overflow: auto;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.drawer-body table { width: 100%; border-collapse: collapse; }
+.drawer-body tfoot th { border-top: 2px solid var(--border, #e2e8f0); }
+
+/* An entry that will move when Walmart settles, versus one that is already
+   final. The distinction is the whole point of opening the drawer. */
+.entry-estimated td:first-child::before {
+  content: "~";
+  color: var(--text-muted);
+  margin-right: 0.3rem;
+}
+
+tr.drillable { cursor: pointer; }
+tr.drillable:hover { background: var(--row-hover, rgba(37, 99, 235, 0.06)); }
