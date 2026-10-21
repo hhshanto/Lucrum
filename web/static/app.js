@@ -124,9 +124,12 @@ const purchaseImportStatus = document.getElementById("purchase-import-status");
 // is fetched only when the tab is opened (lazy), and cached until invalidated.
 const modules = {
   dashboard: {
-    tables: ["profit_by_sku", "products"],
+    // ledger_sku_monthly replaces profit_by_sku: the figures come from
+    // ledger_entries, so they cannot change after the fact, and each row
+    // carries uncosted_lines / is_complete so the UI can say what it knows.
+    tables: ["ledger_sku_monthly", "products"],
     skeleton: [[profitTableBody, 8]],
-    render: (d) => renderDashboard(d.profit_by_sku, d.products),
+    render: (d) => renderDashboard(d.ledger_sku_monthly, d.products),
   },
   products: {
     tables: ["products", "product_costs"],
@@ -159,9 +162,9 @@ const modules = {
     render: (d) => renderOrderDetails(d.order_details),
   },
   profit: {
-    tables: ["monthly_profit"],
+    tables: ["ledger_summary"],
     skeleton: [[monthlyProfitTableBody, 8]],
-    render: (d) => renderMonthlyProfit(d.monthly_profit),
+    render: (d) => renderMonthlyProfit(d.ledger_summary),
   },
   // Team reads through our own server: listing emails and creating logins needs
   // the service key, which must never reach the browser.
@@ -553,6 +556,7 @@ for (const btn of tabButtons) {
 const DATE_COLUMN = {
   order_details: "order_date",
   profit_by_sku: "month",
+  ledger_sku_monthly: "month",
   purchases: "purchase_date",
   damaged_goods: "damaged_date",
   inventory_adjustments: "adjusted_date",
@@ -561,6 +565,7 @@ const DATE_COLUMN = {
   product_costs: null,
   inventory_levels: null,
   monthly_profit: null,
+  ledger_summary: null,
 };
 
 // "2026-07" -> { from: "2026-07-01", to: "2026-08-01" }; null for "All time".
@@ -1143,11 +1148,13 @@ function buildNameMap(productRows) {
 }
 
 // ---- Per-tab renderers ---------------------------------------------------
-// profit_by_sku is one row per (sku, month) so it can be filtered to a period.
-// With a month selected the query already returns one row per SKU; on "All time"
-// it returns one per month sold, which we add back together here. unit_cost and
-// cost_source are current values and identical across a SKU's months, so the
-// first row's copy carries over untouched.
+// ledger_sku_monthly is one row per (sku, month) so it can be filtered to a
+// period. With a month selected the query already returns one row per SKU; on
+// "All time" it returns one per month sold, which we add back together here.
+//
+// uncosted_lines carries across the roll-up: a SKU is only "complete" if EVERY
+// month contributing to it was complete. Rolling up a known month with an
+// unknown one must not launder the unknown away.
 function rollUpBySku(rows) {
   const bySku = new Map();
   for (const row of rows) {
@@ -1156,24 +1163,44 @@ function rollUpBySku(rows) {
       bySku.set(row.sku, { ...row });
       continue;
     }
-    prev.units      = Number(prev.units)      + Number(row.units || 0);
-    prev.revenue    = Number(prev.revenue)    + Number(row.revenue || 0);
-    prev.cogs       = Number(prev.cogs)       + Number(row.cogs || 0);
-    prev.fees       = Number(prev.fees)       + Number(row.fees || 0);
-    prev.net_profit = Number(prev.net_profit) + Number(row.net_profit || 0);
+    prev.units          = Number(prev.units)          + Number(row.units || 0);
+    prev.lines          = Number(prev.lines || 0)     + Number(row.lines || 0);
+    prev.revenue        = Number(prev.revenue)        + Number(row.revenue || 0);
+    prev.cogs           = Number(prev.cogs)           + Number(row.cogs || 0);
+    prev.fees           = Number(prev.fees)           + Number(row.fees || 0);
+    prev.net_profit     = Number(prev.net_profit)     + Number(row.net_profit || 0);
+    prev.uncosted_lines = Number(prev.uncosted_lines || 0) + Number(row.uncosted_lines || 0);
   }
   // Round once at the end: rounding each month first would drift the total.
   for (const row of bySku.values()) {
     for (const key of ["revenue", "cogs", "fees", "net_profit"]) {
       row[key] = Math.round(Number(row[key]) * 100) / 100;
     }
+    row.is_complete = Number(row.uncosted_lines || 0) === 0;
+    // Effective average unit cost implied by the ledger. Null when nothing is
+    // known, so the UI shows "no cost" rather than a confident $0.00.
+    row.unit_cost = Number(row.units) > 0 && row.is_complete
+      ? Math.round((Number(row.cogs) / Number(row.units)) * 10000) / 10000
+      : null;
+    // A margin over partly-unknown costs is not a fact.
+    row.margin_pct = row.is_complete && Number(row.revenue) > 0
+      ? Math.round((100 * Number(row.net_profit) / Number(row.revenue)) * 100) / 100
+      : null;
     delete row.month; // meaningless once months are merged
   }
   return [...bySku.values()];
 }
 
 function renderDashboard(profitRows, productRows) {
-  const profit = rollUpBySku(profitRows).sort((a, b) => b.net_profit - a.net_profit);
+  // The ledger keys everything on sku and deliberately does not carry
+  // product_name -- a name is catalog state, not a financial fact, and copying
+  // it into every entry would let the two drift. Join it on for display.
+  const nameMap = buildNameMap(productRows);
+  const named = profitRows.map((row) => ({
+    ...row,
+    product_name: row.product_name ?? nameMap.get(`${row.store_id}|${row.sku}`) ?? "",
+  }));
+  const profit = rollUpBySku(named).sort((a, b) => b.net_profit - a.net_profit);
 
   profitTableBody.innerHTML = "";
   for (const row of profit) {
@@ -1183,10 +1210,18 @@ function renderDashboard(profitRows, productRows) {
   }
   if (!profit.length) renderEmpty(profitTableBody, 8, "No sales yet - click Refresh orders to pull from Walmart.");
 
-  const soldMissing = profit.filter((r) => r.unit_cost == null);
+  // Unknown is not zero. The old copy here said uncosted SKUs "count as $0.00
+  // profit", which is the exact confusion this rebuild removes: a SKU whose
+  // cost we don't know is not a SKU that broke even.
+  const soldMissing = profit.filter((r) => !r.is_complete);
   if (soldMissing.length) {
     const excludedRevenue = soldMissing.reduce((sum, r) => sum + Number(r.revenue || 0), 0);
-    costWarning.textContent = `${soldMissing.length} of ${profit.length} sold product(s) have no buying price, so they count as ${fmtMoney(0)} profit and are excluded from the total. ${fmtMoney(excludedRevenue)} of revenue isn't counted yet - log a purchase for them, or set a cost on the Products tab.`;
+    const missingLines = soldMissing.reduce((sum, r) => sum + Number(r.uncosted_lines || 0), 0);
+    costWarning.textContent =
+      `${soldMissing.length} of ${profit.length} sold product(s) have no buying price `
+      + `(${missingLines} order line(s), ${fmtMoney(excludedRevenue)} of revenue). `
+      + `Their profit is UNKNOWN, not zero - totals below are a lower bound. `
+      + `Log a purchase for them, or set a cost on the Products tab.`;
     costWarning.hidden = false;
   } else {
     costWarning.hidden = true;
@@ -1562,6 +1597,9 @@ function renderMonthlyProfit(rows) {
   const selected = periodSelect.value !== "all" ? periodSelect.value : null;
   monthlyProfitTableBody.innerHTML = "";
   for (const row of sorted) {
+    // ledger_summary nulls margin_pct whenever the month has uncosted lines,
+    // and the net is then a lower bound rather than a figure.
+    const complete = row.is_complete !== false;
     const tr = renderRow([
       { text: fmtMonth(row.month) },
       { num: row.orders },
@@ -1569,9 +1607,15 @@ function renderMonthlyProfit(rows) {
       { money: row.revenue },
       { money: row.cogs },
       { money: row.fees },
-      { money: row.net_profit, cls: signClass(row.net_profit) },
-      { text: row.margin_pct != null ? `${fmtNum(row.margin_pct)}%` : "", cls: signClass(row.margin_pct) },
+      { text: (complete ? "" : "≥ ") + fmtMoney(row.net_profit), cls: signClass(row.net_profit) },
+      {
+        text: row.margin_pct != null
+          ? `${fmtNum(row.margin_pct)}%`
+          : `${row.uncosted_lines || 0} uncosted`,
+        cls: row.margin_pct != null ? signClass(row.margin_pct) : "muted",
+      },
     ]);
+    if (!complete) tr.title = `${row.uncosted_lines} of ${row.lines} lines have no known cost.`;
     if (selected && String(row.month ?? "").slice(0, 7) === selected) {
       tr.classList.add("row-current-period");
     }
@@ -1590,8 +1634,14 @@ function updateSummary(profitRows, productRows) {
   document.getElementById("stat-cogs").textContent = fmtMoney(totalCogs);
 
   // The only summary figure whose colour means anything: are we up or down?
+  // When any SKU is uncosted the total is a LOWER BOUND, so it is prefixed with
+  // "≥". A bare number here would claim a precision the data does not have.
+  const incomplete = profitRows.some((row) => row.is_complete === false);
   const profitEl = document.getElementById("stat-profit");
-  profitEl.textContent = fmtMoney(totalProfit);
+  profitEl.textContent = (incomplete ? "≥ " : "") + fmtMoney(totalProfit);
+  profitEl.title = incomplete
+    ? "Lower bound: some sold SKUs have no known cost, so their profit is unknown."
+    : "";
   profitEl.className = `stat-value ${signClass(totalProfit)}`.trim();
 }
 
