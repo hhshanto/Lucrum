@@ -224,7 +224,11 @@ def main():
         tally[basis] += 1
 
         record = {"store_id": store_id, "source_id": source_id, "sku": sku,
-                  "unit_cost": round(cost, 4), "basis": basis, "source": source}
+                  "unit_cost": round(cost, 4), "basis": basis, "source": source,
+                  # Stored rather than re-derived. Recovering it later meant
+                  # joining on split_part(source_id, ...), which cannot use an
+                  # index and timed out the Profit tab once RLS was applied.
+                  "customer_order_id": key[0]}
         # Charges are only ever taken from this line's own row. Unlike unit cost
         # they are not a property of the SKU -- one order ships third-party and
         # the next through Walmart -- so imputing them across lines would invent
