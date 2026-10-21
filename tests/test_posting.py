@@ -215,17 +215,23 @@ def test_return_reverses_in_the_return_month_not_the_sale_month():
 
 # ---------------------------------------------------------------- fees
 
+# Keyed on (transaction_type, amount_type). "Product Price" is ignored on a Sale
+# because order_lines already carries it, and reverses revenue on a Refund.
 FEE_MAP = [
-    {"amount_type": "Product Price", "category": "ignore"},
-    {"amount_type": "Shipping", "category": "ignore"},
-    {"amount_type": "Commission on Product", "category": "walmart_fee"},
-    {"amount_type": "Fee/Reimbursement", "category": "wfs_label_fee"},
+    {"transaction_type": "Sale", "amount_type": "Product Price", "category": "ignore"},
+    {"transaction_type": "Sale", "amount_type": "Shipping", "category": "ignore"},
+    {"transaction_type": "Sale", "amount_type": "Commission on Product", "category": "walmart_fee"},
+    {"transaction_type": "Adjustment", "amount_type": "Fee/Reimbursement", "category": "wfs_label_fee"},
+    {"transaction_type": "Refund", "amount_type": "Product Price", "category": "return_revenue"},
+    {"transaction_type": "Refund", "amount_type": "Shipping", "category": "return_revenue"},
+    {"transaction_type": "Refund", "amount_type": "Commission on Product", "category": "walmart_fee"},
 ]
 
 
-def settle(amount_type, amount, cid="C1", sku="SKU1", report="2026-07-28"):
+def settle(amount_type, amount, cid="C1", sku="SKU1", report="2026-07-28",
+           transaction="Sale"):
     return {"amount_type": amount_type, "amount": amount, "customer_order_id": cid,
-            "sku": sku, "report_date": report}
+            "sku": sku, "report_date": report, "transaction_type": transaction}
 
 
 def test_revenue_amount_types_are_ignored_not_posted_as_fees():
@@ -245,7 +251,7 @@ def test_unmapped_amount_type_is_not_posted():
 
 def test_mapped_fees_post_with_their_sign_preserved():
     result = run(settlement_lines=[settle("Commission on Product", -9.32),
-                                   settle("Fee/Reimbursement", -7.48)],
+                                   settle("Fee/Reimbursement", -7.48, transaction="Adjustment")],
                  fee_category_map=FEE_MAP)
     assert amounts(result, "fee_referral") == [-9.32]
     assert amounts(result, "fee_label") == [-7.48]
@@ -266,7 +272,7 @@ def test_swiftzar107_matches_the_hand_verified_figure():
         purchases=[purchase(sku="SWIFTZAR107", qty=1, unit=35.0, date="2026-06-15")],
         product_costs=[{"sku": "SWIFTZAR107", "unit_cost": 35.0, "warehouse_cost": 1.5}],
         settlement_lines=[settle("Commission on Product", -9.32, cid="CO7", sku="SWIFTZAR107"),
-                          settle("Fee/Reimbursement", -7.48, cid="CO7", sku="SWIFTZAR107")],
+                          settle("Fee/Reimbursement", -7.48, cid="CO7", sku="SWIFTZAR107", transaction="Adjustment")],
         fee_category_map=FEE_MAP,
     )
     assert result.net() == pytest.approx(24.39)
@@ -309,8 +315,8 @@ def test_repeated_settlement_rows_aggregate_into_one_entry():
     posting them separately collides on the ledger natural key."""
     result = run(
         settlement_lines=[
-            settle("Fee/Reimbursement", -6.87, cid="C1", sku="SKU1"),
-            settle("Fee/Reimbursement", 0.20, cid="C1", sku="SKU1"),
+            settle("Fee/Reimbursement", -6.87, cid="C1", sku="SKU1", transaction="Adjustment"),
+            settle("Fee/Reimbursement", 0.20, cid="C1", sku="SKU1", transaction="Adjustment"),
         ],
         fee_category_map=FEE_MAP,
     )
@@ -323,8 +329,8 @@ def test_settlement_entries_have_unique_natural_keys():
     """Mirrors the ledger_entries_natural_key constraint."""
     result = run(
         settlement_lines=[
-            settle("Fee/Reimbursement", -6.87, cid="C1", sku="SKU1"),
-            settle("Fee/Reimbursement", 0.20, cid="C1", sku="SKU1"),
+            settle("Fee/Reimbursement", -6.87, cid="C1", sku="SKU1", transaction="Adjustment"),
+            settle("Fee/Reimbursement", 0.20, cid="C1", sku="SKU1", transaction="Adjustment"),
             settle("Commission on Product", -2.00, cid="C1", sku="SKU1"),
         ],
         fee_category_map=FEE_MAP,
@@ -335,8 +341,8 @@ def test_settlement_entries_have_unique_natural_keys():
 
 def test_fees_netting_to_zero_are_not_posted():
     result = run(
-        settlement_lines=[settle("Fee/Reimbursement", -5.00, cid="C1"),
-                          settle("Fee/Reimbursement", 5.00, cid="C1")],
+        settlement_lines=[settle("Fee/Reimbursement", -5.00, cid="C1", transaction="Adjustment"),
+                          settle("Fee/Reimbursement", 5.00, cid="C1", transaction="Adjustment")],
         fee_category_map=FEE_MAP,
     )
     assert [e for e in result.entries if e["entry_type"] == "fee_label"] == []
@@ -479,7 +485,7 @@ def test_settlement_wins_over_the_workbook():
         order_lines=[line(qty=1, revenue=20.0)],
         purchases=[],
         line_costs=[lc2(label_walmart=6.03)],
-        settlement_lines=[settle("Fee/Reimbursement", -5.80, cid="C1", sku="SKU1")],
+        settlement_lines=[settle("Fee/Reimbursement", -5.80, cid="C1", sku="SKU1", transaction="Adjustment")],
         fee_category_map=FEE_MAP,
     )
     labels = amounts(result, "fee_label")
@@ -534,7 +540,7 @@ def test_settlement_sourced_fees_are_not_flagged():
         order_lines=[line(qty=1, revenue=20.0)],
         purchases=[],
         line_costs=[lc2(label_walmart=6.03, walmart_fee=1.41)],
-        settlement_lines=[settle("Fee/Reimbursement", -5.86, cid="C1", sku="SKU1"),
+        settlement_lines=[settle("Fee/Reimbursement", -5.86, cid="C1", sku="SKU1", transaction="Adjustment"),
                           settle("Commission on Product", -1.35, cid="C1", sku="SKU1")],
         fee_category_map=FEE_MAP,
     )
@@ -657,3 +663,27 @@ def test_sale_and_refund_in_one_report_do_not_collide():
     )
     keys = [(e["source_kind"], e["source_id"], e["entry_type"]) for e in result.entries]
     assert len(keys) == len(set(keys))
+
+def test_unknown_transaction_type_is_quarantined_not_guessed():
+    """A combination the map has never seen must not be assigned a category."""
+    result = run(
+        settlement_lines=[{"transaction_type": "Chargeback", "amount_type": "Product Price",
+                           "amount": -40.0, "customer_order_id": "C1", "sku": "SKU1",
+                           "report_date": "2026-09-08"}],
+        fee_category_map=FEE_MAP)
+    assert [e for e in result.entries if e["source_kind"] == "settlement"] == []
+
+
+def test_same_label_opposite_meaning_by_transaction_type():
+    """The bug this re-key exists to prevent: 'Product Price' duplicates revenue
+    on a Sale and reverses it on a Refund."""
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=25.0)],
+        purchases=[],
+        settlement_lines=[settle("Product Price", 25.0, cid="C1"),
+                          refund("Product Price", -25.0, cid="C1")],
+        fee_category_map=FEE_MAP,
+    )
+    assert amounts(result, "return_revenue") == [-25.0]
+    assert amounts(result, "revenue_product") == [25.0]   # the sale row added nothing

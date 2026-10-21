@@ -24,16 +24,18 @@ REALIZED_STATUSES = frozenset({"shipped", "delivered"})
 RETURN_STATUSES = frozenset({"returned", "refunded"})
 CANCELLED_STATUSES = frozenset({"cancelled", "canceled"})
 
-# On a Refund row these carry a negative amount that reverses revenue. On a Sale
-# row the identical labels duplicate order_lines and must stay ignored.
-REFUND_REVENUE_TYPES = frozenset({"Product Price", "Shipping"})
-
-# fee_category_map.category -> ledger entry_type
+# fee_category_map.category -> ledger entry_type.
+#
+# 'return_revenue' is why the map is keyed on (transaction_type, amount_type):
+# 'Product Price' on a Sale duplicates order_lines and must be ignored, while
+# the same label on a Refund reverses revenue and must be posted. One key cannot
+# express two opposite meanings.
 FEE_CATEGORY_TO_ENTRY = {
     "walmart_fee": "fee_referral",
     "wfs_label_fee": "fee_label",
     "refund_fee": "fee_refund",
     "extra_service_fee": "fee_other",
+    "return_revenue": "return_revenue",
 }
 
 
@@ -217,10 +219,12 @@ def post(store_id, orders, order_lines, purchases, product_costs,
     # Which (customer order, sku) pairs settlement already covers. Settlement is
     # what actually left the account, so it wins; the workbook fills gaps only.
     # October has no recon file yet, which is exactly the gap this closes.
-    fee_map_by_type = {m["amount_type"]: m["category"] for m in fee_category_map}
+    fee_map_by_key = {((m.get("transaction_type") or "Sale"), m["amount_type"]): m["category"]
+                      for m in fee_category_map}
     settled = {"walmart_fee": set(), "wfs_label_fee": set()}
     for row in settlement_lines:
-        category = fee_map_by_type.get(row.get("amount_type") or "")
+        key = ((row.get("transaction_type") or "Sale").strip(), row.get("amount_type") or "")
+        category = fee_map_by_key.get(key)
         if category in settled and (row.get("amount") or 0):
             settled[category].add((row.get("customer_order_id"), row.get("sku")))
 
@@ -412,7 +416,10 @@ def post_fees(store_id, orders, order_lines, settlement_lines, fee_category_map)
     An unmapped amount_type is NOT posted -- it is quarantined (DATA_MODEL.md
     section 8). Guessing is how 'Product Price' became a fee and doubled revenue.
     """
-    mapping = {m["amount_type"]: m["category"] for m in fee_category_map}
+    # Keyed on the pair. Rows predating the re-key carry no transaction_type and
+    # are treated as sale rules, which is what they were written to mean.
+    mapping = {((m.get("transaction_type") or "Sale"), m["amount_type"]): m["category"]
+               for m in fee_category_map}
     orders_by_po = {o["purchase_order_id"]: o for o in orders}
 
     date_by_customer_order = {}
@@ -432,24 +439,20 @@ def post_fees(store_id, orders, order_lines, settlement_lines, fee_category_map)
     buckets = {}
     for row in settlement_lines:
         amount_type = row.get("amount_type") or ""
-        transaction = (row.get("transaction_type") or "").strip().lower()
-        category = mapping.get(amount_type)
-        cid = row.get("customer_order_id")
+        transaction = (row.get("transaction_type") or "").strip()
 
-        # A REFUND row is not a sale row. 'Product Price' and 'Shipping' are
-        # mapped to ignore because on a Sale they duplicate order_lines revenue
-        # -- but on a Refund the same labels carry a NEGATIVE amount that is a
-        # revenue reversal, and dropping it leaves a refunded order counted at
-        # full price. Walmart's order API still reports these lines as
-        # Delivered, so settlement is the only place a refund is visible.
-        if transaction == "refund" and amount_type in REFUND_REVENUE_TYPES:
-            entry_type = "return_revenue"
-        elif category is None or category == "ignore":
+        # Looked up on the FULL key. An unrecognised combination is not guessed
+        # at -- it is skipped and surfaced by unmapped_amount_types, because
+        # guessing is how 'Product Price' became a fee and doubled revenue.
+        category = mapping.get((transaction, amount_type))
+        if category is None or category == "ignore":
             continue
-        else:
-            entry_type = FEE_CATEGORY_TO_ENTRY.get(category)
-            if entry_type is None:
-                continue
+        entry_type = FEE_CATEGORY_TO_ENTRY.get(category)
+        if entry_type is None:
+            continue
+
+        transaction = transaction.lower()
+        cid = row.get("customer_order_id")
 
         # transaction_type belongs in the key: a Sale and a Refund for the same
         # order, sku and amount_type can share a report date.
