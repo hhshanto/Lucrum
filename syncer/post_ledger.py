@@ -83,7 +83,8 @@ def main():
                           "sku,unit_cost,warehouse_cost,is_placeholder",
                           store_id=store_id)
         settlement = fetch_all(sb, "settlement_lines",
-                               "report_date,customer_order_id,sku,amount_type,amount",
+                               "report_date,customer_order_id,sku,amount_type,amount,"
+                               "transaction_type,transaction_posted_at",
                                store_id=store_id)
         fee_map = fetch_all(sb, "fee_category_map", "amount_type,category",
                             store_id=store_id)

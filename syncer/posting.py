@@ -24,6 +24,10 @@ REALIZED_STATUSES = frozenset({"shipped", "delivered"})
 RETURN_STATUSES = frozenset({"returned", "refunded"})
 CANCELLED_STATUSES = frozenset({"cancelled", "canceled"})
 
+# On a Refund row these carry a negative amount that reverses revenue. On a Sale
+# row the identical labels duplicate order_lines and must stay ignored.
+REFUND_REVENUE_TYPES = frozenset({"Product Price", "Shipping"})
+
 # fee_category_map.category -> ledger entry_type
 FEE_CATEGORY_TO_ENTRY = {
     "walmart_fee": "fee_referral",
@@ -427,18 +431,39 @@ def post_fees(store_id, orders, order_lines, settlement_lines, fee_category_map)
     # Posting them individually collides on the ledger's natural key.
     buckets = {}
     for row in settlement_lines:
-        category = mapping.get(row.get("amount_type") or "")
-        if category is None or category == "ignore":
-            continue
-        entry_type = FEE_CATEGORY_TO_ENTRY.get(category)
-        if entry_type is None:
-            continue
+        amount_type = row.get("amount_type") or ""
+        transaction = (row.get("transaction_type") or "").strip().lower()
+        category = mapping.get(amount_type)
         cid = row.get("customer_order_id")
-        src = f"{row.get('report_date')}:{cid}:{row.get('sku')}:{row.get('amount_type')}"
+
+        # A REFUND row is not a sale row. 'Product Price' and 'Shipping' are
+        # mapped to ignore because on a Sale they duplicate order_lines revenue
+        # -- but on a Refund the same labels carry a NEGATIVE amount that is a
+        # revenue reversal, and dropping it leaves a refunded order counted at
+        # full price. Walmart's order API still reports these lines as
+        # Delivered, so settlement is the only place a refund is visible.
+        if transaction == "refund" and amount_type in REFUND_REVENUE_TYPES:
+            entry_type = "return_revenue"
+        elif category is None or category == "ignore":
+            continue
+        else:
+            entry_type = FEE_CATEGORY_TO_ENTRY.get(category)
+            if entry_type is None:
+                continue
+
+        # transaction_type belongs in the key: a Sale and a Refund for the same
+        # order, sku and amount_type can share a report date.
+        src = f"{row.get('report_date')}:{transaction or 'sale'}:{cid}:{row.get('sku')}:{amount_type}"
         key = (src, entry_type)
         if key not in buckets:
-            # Economic date when we can tie it to a sale, else the report date.
-            date = date_by_customer_order.get(cid) or _as_date(row.get("report_date"))
+            if transaction == "refund":
+                # A refund is a NEW event, not a correction to the sale. It
+                # belongs in the month it happened, so January keeps the profit
+                # January reported (DATA_MODEL.md section 6).
+                date = _as_date(row.get("transaction_posted_at")) or _as_date(row.get("report_date"))
+            else:
+                # Economic date when we can tie it to a sale, else report date.
+                date = date_by_customer_order.get(cid) or _as_date(row.get("report_date"))
             buckets[key] = {"date": date, "sku": row.get("sku"), "amount": 0.0}
         buckets[key]["amount"] += row.get("amount") or 0
 

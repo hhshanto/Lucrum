@@ -603,3 +603,57 @@ def test_calibrated_entries_record_the_ratio_used():
                  settlement_lines=[], fee_category_map=FEE_MAP, fee_calibration=CAL)
     note = [e["note"] for e in result.entries if e["entry_type"] == "fee_referral"][0]
     assert "1.2490" in note and "366" in note
+
+# ---------------------------------------------------- refunds (A11)
+
+def refund(amount_type, amount, cid="C1", sku="SKU1", report="2026-09-08", posted=None):
+    return {"amount_type": amount_type, "amount": amount, "customer_order_id": cid,
+            "sku": sku, "report_date": report, "transaction_type": "Refund",
+            "transaction_posted_at": posted}
+
+
+def test_refunded_revenue_is_reversed_not_ignored():
+    """'Product Price' is mapped to ignore because on a SALE row it duplicates
+    order_lines. On a REFUND row it is a revenue reversal."""
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=25.0)],
+        purchases=[],
+        settlement_lines=[refund("Product Price", -25.0), refund("Shipping", -5.98)],
+        fee_category_map=FEE_MAP,
+    )
+    assert sorted(amounts(result, "return_revenue")) == [-25.0, -5.98]
+
+
+def test_sale_rows_with_the_same_labels_stay_ignored():
+    result = run(
+        settlement_lines=[settle("Product Price", 25.0), settle("Shipping", 5.98)],
+        fee_category_map=FEE_MAP)
+    assert amounts(result, "return_revenue") == []
+
+
+def test_refund_lands_in_the_month_it_happened():
+    """Not the sale's month -- that would restate a closed period."""
+    result = run(
+        orders=[order(customer="C1", date="2026-07-10T00:00:00+00:00")],
+        order_lines=[line(qty=1, revenue=25.0)],
+        purchases=[],
+        settlement_lines=[refund("Product Price", -25.0, report="2026-09-08")],
+        fee_category_map=FEE_MAP,
+    )
+    entry = [e for e in result.entries if e["entry_type"] == "return_revenue"][0]
+    assert entry["entry_date"].startswith("2026-09")
+
+
+def test_sale_and_refund_in_one_report_do_not_collide():
+    """Same order, sku and amount_type -- only transaction_type differs."""
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=25.0)],
+        purchases=[],
+        settlement_lines=[settle("Commission on Product", -3.0, cid="C1"),
+                          refund("Commission on Product", 3.0, cid="C1")],
+        fee_category_map=FEE_MAP,
+    )
+    keys = [(e["source_kind"], e["source_id"], e["entry_type"]) for e in result.entries]
+    assert len(keys) == len(set(keys))
