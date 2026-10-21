@@ -60,8 +60,18 @@ alter table uncosted_lines add constraint uncosted_lines_reason_check
 -- ============================================================================
 -- Both make a total a lower bound, but they call for different action:
 -- "unknown" needs a purchase logged, "estimated" needs the guess replaced.
+--
+-- These must be DROPPED, not replaced. "create or replace view" can only add
+-- trailing columns -- it cannot rename or reorder existing ones, and here
+-- column 4 changes from uncosted_lines to unknown_lines:
+--     ERROR 42P16: cannot change name of view column "uncosted_lines"
+-- Dropping a view destroys no data. Order matters, innermost last.
 
-create or replace view period_completeness with (security_invoker = on) as
+drop view if exists ledger_summary;
+drop view if exists ledger_sku_monthly;
+drop view if exists period_completeness;
+
+create view period_completeness with (security_invoker = on) as
 with sold as (
   select store_id, date_trunc('month', entry_date)::date as month,
          count(distinct source_id) as lines,
@@ -92,7 +102,7 @@ select
 from sold s
 left join missing m on m.store_id = s.store_id and m.month = s.month;
 
-create or replace view ledger_summary with (security_invoker = on) as
+create view ledger_summary with (security_invoker = on) as
 with volume as (
   select
     store_id,
@@ -123,7 +133,7 @@ from ledger_monthly m
 left join volume v on v.store_id = m.store_id and v.month = m.month
 left join period_completeness c on c.store_id = m.store_id and c.month = m.month;
 
-create or replace view ledger_sku_monthly with (security_invoker = on) as
+create view ledger_sku_monthly with (security_invoker = on) as
 with base as (
   select
     store_id, sku, date_trunc('month', entry_date)::date as month,
