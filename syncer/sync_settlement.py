@@ -5,9 +5,13 @@ WFS fulfillment/storage fees, refund processing fees, etc) that don't appear
 on the Orders API. Run this periodically (e.g. daily) alongside sync.py.
 
 The exact "Amount Type" / "Transaction Type" strings Walmart returns vary by
-account, so this script just stores the raw rows. After the first run, check
-the settlement_lines table to see what values show up, then populate
-fee_category_map so the order_details view can bucket them correctly.
+account, so this script just stores the raw rows. Posting then buckets them via
+fee_category_map, which is keyed on (transaction_type, amount_type) because the
+same label means opposite things depending on the transaction: "Product Price"
+on a Sale duplicates order revenue, while on a Refund it reverses it.
+
+After a sync, check the unmapped_amount_types view. It must be empty -- an
+unrecognised combination is deliberately NOT posted rather than guessed at.
 
 Usage:
     python sync_settlement.py --days 7
