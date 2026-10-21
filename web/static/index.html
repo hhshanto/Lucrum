@@ -437,7 +437,13 @@
         <div class="card">
           <div class="card-header">
             <h2>Customer returns</h2>
-            <p class="note">Customer returns/refunds reported by Walmart.</p>
+            <p class="note">
+              Refunds Walmart has actually paid back, taken from the settlement report.
+              The order feed is no use here &mdash; a refunded line still reports as
+              <strong>Delivered</strong>, so the status never says a return happened.
+              Dated to the <strong>refund</strong>, not the sale, so a refund reverses in the
+              month it occurred rather than rewriting a month you have already read.
+            </p>
           </div>
           <div class="table-wrap">
             <table id="returns-table">

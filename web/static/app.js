@@ -158,9 +158,12 @@ const modules = {
     render: (d) => renderInventory(d.inventory_levels, d.inventory_adjustments),
   },
   returns: {
-    tables: ["returns"],
+    // ledger_returns, not returns: the legacy view looks for refunds in
+    // order_lines.status, which Walmart never sets -- a refunded line still
+    // reports as Delivered. It has been empty since it was written.
+    tables: ["ledger_returns"],
     skeleton: [[returnsTableBody, 6]],
-    render: (d) => renderReturns(d.returns),
+    render: (d) => renderReturns(d.ledger_returns),
   },
   "order-details": {
     // ledger_order_details, not order_details: the legacy view still recomputes
@@ -586,7 +589,7 @@ const DATE_COLUMN = {
   purchases: "purchase_date",
   damaged_goods: "damaged_date",
   inventory_adjustments: "adjusted_date",
-  returns: "order_date",
+  ledger_returns: "order_date",
   products: null,
   product_costs: null,
   inventory_levels: null,
@@ -1364,8 +1367,23 @@ function renderAdjustmentRow(row) {
 function renderReturns(returnRows) {
   const rows = [...returnRows].sort((a, b) => (b.order_date ?? "").localeCompare(a.order_date ?? ""));
   returnsTableBody.innerHTML = "";
-  for (const row of rows) returnsTableBody.appendChild(renderReturnRow(row));
-  if (!rows.length) renderEmpty(returnsTableBody, 6, "No returns yet.");
+  for (const row of rows) {
+    const tr = renderReturnRow(row);
+    tr.classList.add("drillable");
+    tr.addEventListener("click", () => openEntryDrawer({
+      title: `${row.sku} - refunded on order ${row.customer_order_id}`,
+      subtitle: row.sold_at
+        ? `Sold ${fmtDate(row.sold_at)} for ${fmtMoney(row.original_revenue)}, refunded ${fmtDate(row.order_date)}`
+        : "",
+      customerOrderId: row.customer_order_id,
+      sku: row.sku,
+    }));
+    returnsTableBody.appendChild(tr);
+  }
+  if (!rows.length) {
+    renderEmpty(returnsTableBody, 6,
+      "No refunds in the settlement data for this period.");
+  }
 }
 
 function renderOrderDetails(orderDetailRows) {
