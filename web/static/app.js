@@ -128,7 +128,7 @@ const modules = {
     // ledger_entries, so they cannot change after the fact, and each row
     // carries uncosted_lines / is_complete so the UI can say what it knows.
     tables: ["ledger_sku_monthly", "products"],
-    skeleton: [[profitTableBody, 8]],
+    skeleton: [[profitTableBody, 9]],
     render: (d) => renderDashboard(d.ledger_sku_monthly, d.products),
   },
   products: {
@@ -1169,13 +1169,14 @@ function rollUpBySku(rows) {
     prev.cogs           = Number(prev.cogs)           + Number(row.cogs || 0);
     prev.fees           = Number(prev.fees)           + Number(row.fees || 0);
     prev.net_profit     = Number(prev.net_profit)     + Number(row.net_profit || 0);
+    prev.returns        = Number(prev.returns || 0)   + Number(row.returns || 0);
     prev.uncosted_lines  = Number(prev.uncosted_lines || 0)  + Number(row.uncosted_lines || 0);
     prev.unknown_lines   = Number(prev.unknown_lines || 0)   + Number(row.unknown_lines || 0);
     prev.estimated_lines = Number(prev.estimated_lines || 0) + Number(row.estimated_lines || 0);
   }
   // Round once at the end: rounding each month first would drift the total.
   for (const row of bySku.values()) {
-    for (const key of ["revenue", "cogs", "fees", "net_profit"]) {
+    for (const key of ["revenue", "cogs", "fees", "net_profit", "returns"]) {
       row[key] = Math.round(Number(row[key]) * 100) / 100;
     }
     row.is_complete = Number(row.uncosted_lines || 0) === 0;
@@ -1210,7 +1211,7 @@ function renderDashboard(profitRows, productRows) {
     // when the SKU has any, otherwise the manual Products cost. null = none.
     profitTableBody.appendChild(renderProfitRow(row, row.unit_cost ?? 0, row.unit_cost != null));
   }
-  if (!profit.length) renderEmpty(profitTableBody, 8, "No sales yet - click Refresh orders to pull from Walmart.");
+  if (!profit.length) renderEmpty(profitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
 
   // Three cost states, two of which make a total a lower bound -- but they need
   // different action, so they get different sentences. "Unknown" wants a
@@ -1646,7 +1647,7 @@ function renderMonthlyProfit(rows) {
       { money: row.revenue },
       { money: row.cogs },
       { money: row.fees },
-      { money: row.returns, cls: Number(row.returns) ? "negative" : "muted" },
+      { money: row.returns, cls: Number(row.returns) ? "neg" : "muted" },
       {
         text: estimated
           ? `${fmtMoney(row.net_low)} – ${fmtMoney(row.net_high)}`
@@ -1723,12 +1724,13 @@ function renderProfitRow(row, unitCost, hasCost) {
   const revenueCell = document.createElement("td");
   revenueCell.textContent = fmtMoney(row.revenue);
 
+  const unknown = Number(row.unknown_lines || 0);
+  const estimated = Number(row.estimated_lines || 0);
+
   const costCell = document.createElement("td");
   if (hasCost) {
     costCell.textContent = fmtMoney(unitCost);
-    costCell.title = row.cost_source === "landed"
-      ? "Landed cost from your purchases (unit cost + sales tax + shipping)"
-      : "Manual cost from the Products tab";
+    costCell.title = "Effective cost implied by the ledger (COGS / units).";
   } else {
     costCell.appendChild(noCostBadge());
     tr.classList.add("row-missing-cost");
@@ -1739,15 +1741,35 @@ function renderProfitRow(row, unitCost, hasCost) {
 
   const feesCell = document.createElement("td");
   feesCell.textContent = fmtMoney(row.fees);
-  feesCell.title = "Walmart fees (referral, label, refunds). $0 until settlement lands or you enter them on an order.";
+  feesCell.title = "Walmart referral and label fees, third-party labels, and refund fees.";
+
+  // Returns were folded invisibly into net before this -- a SKU could look
+  // mediocre when it was actually selling well and being sent back.
+  const returnsCell = document.createElement("td");
+  const returns = Number(row.returns || 0);
+  returnsCell.textContent = returns ? fmtMoney(returns) : "-";
+  if (returns) {
+    returnsCell.classList.add("neg");
+    returnsCell.title = "Revenue reversed by customer refunds, dated to the refund.";
+  } else {
+    returnsCell.classList.add("muted");
+  }
 
   const profitCell = document.createElement("td");
-  profitCell.textContent = fmtMoney(row.net_profit);
+  // Unknown cost means profit is UNKNOWN, not zero -- so mark it as a bound
+  // rather than printing a confident figure.
+  profitCell.textContent = (unknown ? "≥ " : "") + fmtMoney(row.net_profit);
   const profitSign = signClass(row.net_profit);
   if (profitSign) profitCell.classList.add(profitSign);
-  if (!hasCost) profitCell.title = "Excluded - no buying price known for this SKU";
+  if (unknown) {
+    profitCell.title = `Lower bound - ${unknown} line(s) have no known cost.`;
+  } else if (estimated) {
+    profitCell.title = `${estimated} line(s) use estimated fees or costs; this will firm up when Walmart settles.`;
+    profitCell.classList.add("estimated");
+  }
 
-  tr.append(skuCell, nameCell, unitsCell, revenueCell, costCell, cogsCell, feesCell, profitCell);
+  tr.append(skuCell, nameCell, unitsCell, revenueCell, costCell, cogsCell,
+            feesCell, returnsCell, profitCell);
   return tr;
 }
 

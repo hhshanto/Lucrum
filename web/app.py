@@ -107,7 +107,11 @@ def sync_orders(request: Request, days: int = 30, store_id: str = ""):
         raise HTTPException(status_code=504, detail="Sync took too long and was stopped.")
 
     output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-    failed = proc.returncode != 0 or "FAILED" in output
+    # sync.py exits non-zero when any feed fails, so the return code is now
+    # authoritative. It used to print "FAILED" and exit 0, which forced this to
+    # grep stdout -- a check that would silently pass the moment the wording
+    # changed, and that fired on any order whose product name contained the word.
+    failed = proc.returncode != 0
     return {"ok": not failed, "returncode": proc.returncode, "output": output}
 
 
@@ -131,7 +135,8 @@ def sync_settlement(request: Request, days: int = 30, store_id: str = ""):
         raise HTTPException(status_code=504, detail="Settlement sync took too long and was stopped.")
 
     output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-    failed = proc.returncode != 0 or "FAILED" in output
+    # sync_settlement.py now exits non-zero on failure too.
+    failed = proc.returncode != 0
     return {"ok": not failed, "returncode": proc.returncode, "output": output}
 
 

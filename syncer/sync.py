@@ -156,7 +156,40 @@ def sync_products(supabase, store_id: str, client: WalmartClient):
     for i in range(0, len(rows), 200):
         supabase.table("products").upsert(rows[i:i + 200]).execute()
 
-    print(f"  synced {len(rows)} catalog products")
+    # get_items returns the COMPLETE catalog, so anything absent from a
+    # successful full pull is gone from Walmart. Only safe because we got here
+    # without an exception -- marking from a partial pull would mass-delist the
+    # catalog on a transient API failure.
+    seen = {r["sku"] for r in rows if r["sku"]}
+    delisted = relisted = 0
+    if seen:
+        existing = []
+        offset = 0
+        while True:
+            batch = (supabase.table("products").select("sku, delisted_at")
+                     .eq("store_id", store_id).range(offset, offset + 499).execute().data)
+            existing += batch
+            if len(batch) < 500:
+                break
+            offset += 500
+
+        gone = [r["sku"] for r in existing if r["sku"] not in seen and not r["delisted_at"]]
+        back = [r["sku"] for r in existing if r["sku"] in seen and r["delisted_at"]]
+
+        for i in range(0, len(gone), 100):
+            supabase.table("products").update({"delisted_at": now}) \
+                .eq("store_id", store_id).in_("sku", gone[i:i + 100]).execute()
+        for i in range(0, len(back), 100):
+            supabase.table("products").update({"delisted_at": None}) \
+                .eq("store_id", store_id).in_("sku", back[i:i + 100]).execute()
+        delisted, relisted = len(gone), len(back)
+
+    note = ""
+    if delisted:
+        note += f", {delisted} newly delisted"
+    if relisted:
+        note += f", {relisted} relisted"
+    print(f"  synced {len(rows)} catalog products{note}")
     return len(rows)
 
 

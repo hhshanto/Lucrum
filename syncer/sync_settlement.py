@@ -16,6 +16,7 @@ Usage:
 import argparse
 import datetime as dt
 import os
+import sys
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -132,6 +133,7 @@ def main():
         query = query.eq("store_id", args.store_id)
     stores = query.execute()
 
+    failures = 0
     for store in stores.data:
         store_id, name = store["store_id"], store["name"]
 
@@ -143,11 +145,33 @@ def main():
             continue
 
         print(f"Syncing settlement for {name!r} ({store_id})...")
+        started = dt.datetime.now(dt.timezone.utc)
         try:
             client = WalmartClient(creds.data[0]["client_id"], decrypt(creds.data[0]["encrypted_client_secret"]))
             sync_settlement(supabase, store_id, client, days)
         except Exception as exc:
-            print(f"  FAILED: {exc}")
+            detail = f"{type(exc).__name__}: {exc}"[:2000]
+            print(f"  FAILED: {detail}")
+            failures += 1
+            supabase.table("sync_state").upsert({
+                "store_id": store_id, "feed": "settlement",
+                "last_run_at": started.isoformat(), "last_status": "failed",
+                "last_error": detail,
+            }).execute()
+            continue
+
+        supabase.table("sync_state").upsert({
+            "store_id": store_id, "feed": "settlement",
+            "watermark": started.isoformat(), "last_run_at": started.isoformat(),
+            "last_status": "ok", "last_error": None,
+        }).execute()
+
+    if failures:
+        # Exit non-zero so web/app.py can trust the return code instead of
+        # grepping stdout. This swallowed exception is exactly how the MMDDYYYY
+        # date bug kept settlement_lines empty without anyone noticing.
+        print(f"{failures} store(s) failed")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

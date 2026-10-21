@@ -1063,3 +1063,15 @@ select:focus {
   border: none;
   font-weight: 400;
 }
+
+/* A figure that will move when Walmart settles. Dotted underline rather than a
+   colour, so it reads as "provisional" without competing with the
+   positive/negative signal the profit column already carries. */
+.estimated {
+  border-bottom: 1px dotted var(--muted, #9aa4b2);
+  cursor: help;
+}
+
+/* Dim a cell that carries no signal -- an empty Returns column should recede
+   rather than read as a meaningful zero. */
+.muted { color: var(--text-muted); }
