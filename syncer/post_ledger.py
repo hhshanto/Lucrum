@@ -101,6 +101,11 @@ def main():
                        fetch_all(sb, "fee_calibration",
                                  "entry_type,pairs,ratio_median,ratio_p10,ratio_p90",
                                  store_id=store_id)}
+        if not calibration:
+            # Silence here used to be indistinguishable from "no adjustment
+            # needed", which hid a circular dependency on the ledger for a whole
+            # run. Say so out loud.
+            print("  calibration: NONE AVAILABLE -- workbook fees post unadjusted")
         for entry_type, row in sorted(calibration.items()):
             print(f"  calibration: {entry_type:<13} ratio {row['ratio_median']} "
                   f"on {row['pairs']} settled pairs")
