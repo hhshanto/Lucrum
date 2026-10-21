@@ -98,6 +98,12 @@ const EDITABLE = {
 const tabButtons = document.querySelectorAll(".tab-btn");
 const tabPanels = document.querySelectorAll(".tab-panel");
 
+const syncTableBody = document.querySelector("#sync-table tbody");
+const unmappedTableBody = document.querySelector("#unmapped-table tbody");
+const feeMapTableBody = document.querySelector("#feemap-table tbody");
+const calibrationTableBody = document.querySelector("#calibration-table tbody");
+const periodsTableBody = document.querySelector("#periods-table tbody");
+
 const purchaseForm = document.getElementById("purchase-form");
 const damagedForm = document.getElementById("damaged-form");
 const adjustmentForm = document.getElementById("adjustment-form");
@@ -177,6 +183,23 @@ const modules = {
     skeleton: [[storesTableBody, 5]],
     load: () => apiFetch("/admin/stores"),
     render: (d) => renderStores(d),
+  },
+  // Health surfaces. These read views directly through RLS rather than going
+  // via /admin, because none of them need the service key.
+  sync: {
+    tables: ["sync_health"],
+    skeleton: [[syncTableBody, 6]],
+    render: (d) => renderSyncHealth(d.sync_health),
+  },
+  fees: {
+    tables: ["unmapped_amount_types", "fee_category_map", "fee_calibration"],
+    skeleton: [[unmappedTableBody, 5], [feeMapTableBody, 3], [calibrationTableBody, 6]],
+    render: (d) => renderFeeMap(d.unmapped_amount_types, d.fee_category_map, d.fee_calibration),
+  },
+  periods: {
+    tables: ["period_close_readiness"],
+    skeleton: [[periodsTableBody, 6]],
+    render: (d) => renderPeriods(d.period_close_readiness),
   },
 };
 
@@ -566,6 +589,13 @@ const DATE_COLUMN = {
   inventory_levels: null,
   monthly_profit: null,
   ledger_summary: null,
+  // Health views describe the whole store, not a period. Filtering them to the
+  // selected month would hide the very staleness they exist to report.
+  sync_health: null,
+  unmapped_amount_types: null,
+  fee_category_map: null,
+  fee_calibration: null,
+  period_close_readiness: null,
 };
 
 // "2026-07" -> { from: "2026-07-01", to: "2026-08-01" }; null for "All time".
@@ -1674,6 +1704,131 @@ function renderMonthlyProfit(rows) {
     monthlyProfitTableBody.appendChild(tr);
   }
   if (!sorted.length) renderEmpty(monthlyProfitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
+}
+
+// ---- Health surfaces -----------------------------------------------------
+
+// Settlement arrives roughly fortnightly, so it is legitimately stale most of
+// the time. Judging every feed by one threshold would cry wolf constantly.
+const STALE_HOURS = { orders: 48, products: 48, settlement: 24 * 18 };
+
+function renderSyncHealth(rows) {
+  const sorted = [...(rows || [])].sort((a, b) => (a.feed || "").localeCompare(b.feed || ""));
+  syncTableBody.innerHTML = "";
+  for (const row of sorted) {
+    const hours = Number(row.hours_since_run || 0);
+    const stale = hours > (STALE_HOURS[row.feed] ?? 48);
+    const failed = row.last_status === "failed";
+    const tr = renderRow([
+      { text: row.feed },
+      { text: failed ? "failed" : stale ? "stale" : "ok", cls: failed || stale ? "neg" : "pos" },
+      { text: row.last_run_at ? `${fmtDate(row.last_run_at)} (${fmtNum(hours)}h ago)` : "never" },
+      { text: row.watermark ? fmtDate(row.watermark) : "-", cls: row.watermark ? "" : "muted" },
+      { num: row.failures_7d },
+      { text: row.last_error || "-", cls: row.last_error ? "neg" : "muted" },
+    ]);
+    if (row.last_error) tr.title = row.last_error;
+    syncTableBody.appendChild(tr);
+  }
+  if (!sorted.length) {
+    renderEmpty(syncTableBody, 6, "No sync has run yet for this store.");
+  }
+}
+
+const FEE_CATEGORY_LABEL = {
+  ignore: "ignored - already counted in the order",
+  walmart_fee: "Walmart referral / commission",
+  wfs_label_fee: "Walmart shipping label",
+  refund_fee: "refund processing fee",
+  extra_service_fee: "other Walmart fee",
+  return_revenue: "reverses revenue (refund)",
+};
+
+function renderFeeMap(unmapped, mapping, calibration) {
+  unmappedTableBody.innerHTML = "";
+  for (const row of unmapped || []) {
+    const tr = renderRow([
+      { text: row.transaction_type },
+      { text: row.amount_type },
+      { num: row.rows },
+      { money: row.total_amount, cls: "neg" },
+      { text: fmtDate(row.last_seen) },
+    ]);
+    tr.classList.add("row-missing-cost");
+    unmappedTableBody.appendChild(tr);
+  }
+  if (!(unmapped || []).length) {
+    renderEmpty(unmappedTableBody, 5, "Empty - every settlement row is mapped.");
+  }
+
+  const sorted = [...(mapping || [])].sort((a, b) =>
+    (a.transaction_type || "").localeCompare(b.transaction_type || "") ||
+    (a.amount_type || "").localeCompare(b.amount_type || ""));
+  feeMapTableBody.innerHTML = "";
+  for (const row of sorted) {
+    feeMapTableBody.appendChild(renderRow([
+      { text: row.transaction_type },
+      { text: row.amount_type || "(blank)" },
+      {
+        text: FEE_CATEGORY_LABEL[row.category] || row.category,
+        cls: row.category === "ignore" ? "muted" : "",
+      },
+    ]));
+  }
+  if (!sorted.length) renderEmpty(feeMapTableBody, 3, "No mappings configured.");
+
+  calibrationTableBody.innerHTML = "";
+  for (const row of calibration || []) {
+    // A ratio above 1 means the workbook overstates the fee, so the real charge
+    // is lower and profit is higher than the spreadsheet suggests.
+    const over = Number(row.ratio_median || 1) - 1;
+    calibrationTableBody.appendChild(renderRow([
+      { text: row.entry_type === "fee_referral" ? "Referral" : "Label" },
+      { num: row.pairs },
+      { text: fmtNum(row.ratio_p10) },
+      { text: fmtNum(row.ratio_median) },
+      { text: fmtNum(row.ratio_p90) },
+      {
+        text: `${over >= 0 ? "over" : "under"}states by ${fmtNum(Math.abs(over) * 100)}%`,
+        cls: Math.abs(over) > 0.05 ? "neg" : "muted",
+      },
+    ]));
+  }
+  if (!(calibration || []).length) {
+    renderEmpty(calibrationTableBody, 6,
+      "No settled lines to compare against yet - estimates post uncalibrated.");
+  }
+}
+
+function renderPeriods(rows) {
+  const sorted = [...(rows || [])].sort((a, b) => (b.month ?? "").localeCompare(a.month ?? ""));
+  periodsTableBody.innerHTML = "";
+  for (const row of sorted) {
+    // Name what is blocking rather than just refusing, so the next action is
+    // obvious: estimated fees resolve themselves, unknown costs do not.
+    const blockers = [];
+    if (!row.settlement_ingested) blockers.push("no settlement yet");
+    if (!row.fees_all_mapped) blockers.push(`${row.unmapped_types} unmapped fee type(s)`);
+    if (row.unknown_lines) blockers.push(`${row.unknown_lines} line(s) with no known cost`);
+    if (row.estimated_entries) blockers.push(`${row.estimated_entries} estimated fee(s) awaiting settlement`);
+
+    const tick = (ok) => ({ text: ok ? "yes" : "no", cls: ok ? "pos" : "neg" });
+    const tr = renderRow([
+      { text: fmtMonth(row.month) },
+      { text: row.status, cls: row.status === "closed" ? "pos" : "muted" },
+      tick(row.settlement_ingested),
+      tick(row.fees_final),
+      tick(row.costs_known),
+      {
+        text: row.status === "closed" ? "closed"
+          : blockers.length ? blockers.join("; ")
+          : "ready to close",
+        cls: row.status === "closed" ? "muted" : blockers.length ? "" : "pos",
+      },
+    ]);
+    periodsTableBody.appendChild(tr);
+  }
+  if (!sorted.length) renderEmpty(periodsTableBody, 6, "No ledger entries yet.");
 }
 
 function updateSummary(profitRows, productRows) {
