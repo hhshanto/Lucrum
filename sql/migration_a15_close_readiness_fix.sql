@@ -16,7 +16,18 @@
 -- settlement-sourced fees behind it? That is answerable directly from the
 -- ledger, where every entry already carries both its period and its provenance.
 
-create or replace view period_close_readiness with (security_invoker = on) as
+-- Dropped, not replaced. settled_entries and estimated_entries are inserted
+-- before unmapped_types, which reorders the column list, and
+-- "create or replace view" can only append (ERROR 42P16).
+--
+-- Third time this has bitten in this project. The reliable rule: if a view's
+-- column list changes AT ALL -- added, removed, renamed or reordered -- drop it
+-- first. Views hold no data, so the drop costs nothing and guessing wrong costs
+-- a round trip.
+
+drop view if exists period_close_readiness;
+
+create view period_close_readiness with (security_invoker = on) as
 with months as (
   select distinct store_id, date_trunc('month', entry_date)::date as month
   from ledger_entries
