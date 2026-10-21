@@ -282,18 +282,30 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                     sku=sku, quantity=qty, source_kind="manual", src=src,
                     note="third-party label (never in settlement)"))
 
-            # Walmart-side charges: post from the workbook ONLY where settlement
+            # Walmart-side charges. Post from the workbook ONLY where settlement
             # has nothing, or they would double-count.
+            #
+            # These two columns are transcribed from Walmart by hand and the
+            # seller reports they are not reliably entered -- across 84 lines the
+            # workbook's label cost exceeds settlement by a consistent 2-3%. So a
+            # workbook-sourced Walmart charge is an ESTIMATE, never a known
+            # figure, and the line is flagged accordingly. Settlement supersedes
+            # it automatically once the recon file arrives.
+            workbook_fee_used = False
             if charges.get("label_walmart") and (customer_order, sku) not in settled["wfs_label_fee"]:
                 result.entries.append(_entry(
                     store_id, date, "fee_label", -charges["label_walmart"],
                     sku=sku, quantity=qty, source_kind="manual", src=src,
-                    note="workbook label; not yet settled"))
+                    note="workbook label, ESTIMATE pending settlement"))
+                workbook_fee_used = True
             if charges.get("walmart_fee") and (customer_order, sku) not in settled["walmart_fee"]:
                 result.entries.append(_entry(
                     store_id, date, "fee_referral", -charges["walmart_fee"],
                     sku=sku, quantity=qty, source_kind="manual", src=src,
-                    note="workbook referral fee; not yet settled"))
+                    note="workbook referral fee, ESTIMATE pending settlement"))
+                workbook_fee_used = True
+            if workbook_fee_used:
+                flag("estimated_fee")
 
             exact = line_cost_by_source.get(src) if charges.get("unit_cost") else None
             if exact:

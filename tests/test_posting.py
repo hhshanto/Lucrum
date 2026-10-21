@@ -517,3 +517,37 @@ def test_all_charges_reduce_net_profit():
     )
     # 10.00 + 5.98 - 1.96 - 0.64 - 2.50 - 1.50
     assert result.net() == pytest.approx(9.38)
+
+def test_workbook_walmart_fee_is_flagged_as_an_estimate():
+    """Those columns are hand-copied from Walmart and the seller reports they
+    are unreliable, so a line relying on them cannot show a confident margin."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.41, label_walmart=6.03)],
+                 settlement_lines=[], fee_category_map=FEE_MAP)
+    assert amounts(result, "fee_referral") == [-1.41]
+    assert result.uncosted[-1]["reason"] == "estimated_fee"
+
+
+def test_settlement_sourced_fees_are_not_flagged():
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=20.0)],
+        purchases=[],
+        line_costs=[lc2(label_walmart=6.03, walmart_fee=1.41)],
+        settlement_lines=[settle("Fee/Reimbursement", -5.86, cid="C1", sku="SKU1"),
+                          settle("Commission on Product", -1.35, cid="C1", sku="SKU1")],
+        fee_category_map=FEE_MAP,
+    )
+    assert amounts(result, "fee_label") == [-5.86]
+    assert amounts(result, "fee_referral") == [-1.35]
+    assert not [u for u in result.uncosted if u["reason"] == "estimated_fee"]
+
+
+def test_seller_sourced_charges_are_never_flagged():
+    """Third-party labels and warehouse are the seller's own records."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(label_third_party=2.5, warehouse_cost=1.5)],
+                 settlement_lines=[], fee_category_map=FEE_MAP)
+    assert amounts(result, "fee_label_3p") == [-2.5]
+    assert amounts(result, "warehouse") == [-1.5]
+    assert not [u for u in result.uncosted if u["reason"] == "estimated_fee"]
