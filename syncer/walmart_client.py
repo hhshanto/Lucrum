@@ -72,15 +72,28 @@ class WalmartClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_orders(self, created_start_date: str, limit: int = 100):
-        """Yield every order element created on/after created_start_date (ISO date)."""
+    def get_orders(self, created_start_date: str = None, limit: int = 100,
+                   last_modified_start_date: str = None):
+        """Yield order elements, by creation date or by last-modified date.
+
+        lastModifiedStartDate is what keeps statuses current: it returns orders
+        whose status CHANGED, not just new ones. Fetching by creation date alone
+        means an order created Monday and shipped Friday is never seen again, so
+        it stays Acknowledged forever and its revenue never realises.
+        """
+        if not (created_start_date or last_modified_start_date):
+            raise ValueError("one of created_start_date / last_modified_start_date is required")
+
         url = f"{BASE_URL}/orders"
         params = {
-            "createdStartDate": created_start_date,
             "limit": limit,
             "productInfo": "true",
             "shipNodeType": "SellerFulfilled",
         }
+        if last_modified_start_date:
+            params["lastModifiedStartDate"] = last_modified_start_date
+        if created_start_date:
+            params["createdStartDate"] = created_start_date
 
         while True:
             data = self._get(url, params=params)
