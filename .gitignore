@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+
+# Live financial data -- real customer names, order IDs and costs.
+# Never commit these to a repo with a remote.
+*.xlsx
+*.csv
+analysis/
+
+# Local agent/editor config, not part of the application.
+opencode.jsonc
