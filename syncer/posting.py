@@ -189,6 +189,16 @@ def post(store_id, orders, order_lines, purchases, product_costs,
     # moving average from purchases.
     line_cost_by_source = {c["source_id"]: c for c in line_costs}
 
+    # Which (customer order, sku) pairs settlement already covers. Settlement is
+    # what actually left the account, so it wins; the workbook fills gaps only.
+    # October has no recon file yet, which is exactly the gap this closes.
+    fee_map_by_type = {m["amount_type"]: m["category"] for m in fee_category_map}
+    settled = {"walmart_fee": set(), "wfs_label_fee": set()}
+    for row in settlement_lines:
+        category = fee_map_by_type.get(row.get("amount_type") or "")
+        if category in settled and (row.get("amount") or 0):
+            settled[category].add((row.get("customer_order_id"), row.get("sku")))
+
     # --- build one chronological event stream per sku -------------------
     events = []
     for p in purchases:
@@ -247,7 +257,45 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                     "reason": reason,
                 })
 
-            exact = line_cost_by_source.get(src)
+            charges = line_cost_by_source.get(src) or {}
+            customer_order = _order.get("customer_order_id")
+
+            def post_warehouse():
+                """Handling charge. Per ORDER, not per unit -- the workbook
+                charges 1.50 on a six-unit line. product_costs stores a per-unit
+                figure, so it is only the fallback."""
+                if charges.get("warehouse_cost") is not None:
+                    amount = charges["warehouse_cost"]
+                else:
+                    amount = qty * ((costs_by_sku.get(sku) or {}).get("warehouse_cost") or 0)
+                if amount:
+                    result.entries.append(_entry(
+                        store_id, date, "warehouse", -amount,
+                        sku=sku, quantity=qty, src=src))
+
+            # Third-party labels are bought outside Walmart, so they appear in
+            # no API. The workbook is the ONLY source -- there is nothing to
+            # defer to and nothing to reconcile against.
+            if charges.get("label_third_party"):
+                result.entries.append(_entry(
+                    store_id, date, "fee_label_3p", -charges["label_third_party"],
+                    sku=sku, quantity=qty, source_kind="manual", src=src,
+                    note="third-party label (never in settlement)"))
+
+            # Walmart-side charges: post from the workbook ONLY where settlement
+            # has nothing, or they would double-count.
+            if charges.get("label_walmart") and (customer_order, sku) not in settled["wfs_label_fee"]:
+                result.entries.append(_entry(
+                    store_id, date, "fee_label", -charges["label_walmart"],
+                    sku=sku, quantity=qty, source_kind="manual", src=src,
+                    note="workbook label; not yet settled"))
+            if charges.get("walmart_fee") and (customer_order, sku) not in settled["walmart_fee"]:
+                result.entries.append(_entry(
+                    store_id, date, "fee_referral", -charges["walmart_fee"],
+                    sku=sku, quantity=qty, source_kind="manual", src=src,
+                    note="workbook referral fee; not yet settled"))
+
+            exact = line_cost_by_source.get(src) if charges.get("unit_cost") else None
             if exact:
                 # Known actual cost for THIS line. Still consume inventory so
                 # the running average stays honest for lines that fall through
@@ -262,11 +310,7 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                     # The SKU's recorded costs disagree, so this line's figure
                     # is a median rather than its own price.
                     flag("estimated_cost")
-                wh = (costs_by_sku.get(sku) or {}).get("warehouse_cost") or 0
-                if wh:
-                    result.entries.append(_entry(
-                        store_id, date, "warehouse", -(qty * wh),
-                        sku=sku, quantity=qty, src=src))
+                post_warehouse()
                 continue
 
             cogs, reason = b.sell(qty)
@@ -301,11 +345,7 @@ def post(store_id, orders, order_lines, purchases, product_costs,
                 if reason:
                     flag(reason)
 
-            wh = (costs_by_sku.get(sku) or {}).get("warehouse_cost") or 0
-            if wh:
-                result.entries.append(_entry(
-                    store_id, date, "warehouse", -(qty * wh),
-                    sku=sku, quantity=qty, src=src))
+            post_warehouse()
 
         elif kind == "return":
             # Reverse in the return's month. January keeps January's number.

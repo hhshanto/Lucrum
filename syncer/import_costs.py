@@ -28,15 +28,38 @@ load_dotenv()
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-# path, sheets, and the header labels for order id / sku / unit cost
+# Two books, two layouts, same meaning. `charges` maps our column name to the
+# header used in that book; a missing key just means that book does not record
+# it (the Jul/Aug book predates third-party labels).
 BOOKS = [
-    ("SWIFTZAR LLC till Aug 8.xlsx",
-     ["July 1- July 4", "July 4- Aug 8 ", "Aug 8-Aug 22"],
-     "customer order id", "sku/upc", "unit purchase price"),
-    ("Swiftzar Llc.xlsx",
-     ["Aug-26", "Sep-26", "Oct-26"],
-     "order#", "sku code", "per item cost"),
+    {
+        "file": "SWIFTZAR LLC till Aug 8.xlsx",
+        "sheets": ["July 1- July 4", "July 4- Aug 8 ", "Aug 8-Aug 22"],
+        "order": "customer order id",
+        "sku": "sku/upc",
+        "cost": "unit purchase price",
+        "charges": {
+            "walmart_fee": "walmart fees",
+            "label_walmart": "wfs/ label fees",
+            "warehouse_cost": "w.house cost",
+        },
+    },
+    {
+        "file": "Swiftzar Llc.xlsx",
+        "sheets": ["Aug-26", "Sep-26", "Oct-26"],
+        "order": "order#",
+        "sku": "sku code",
+        "cost": "per item cost",
+        "charges": {
+            "walmart_fee": "walmart fee",
+            "label_walmart": "buy label from walmart",
+            "label_third_party": "buy label from 3rd party",
+            "warehouse_cost": "warehouse",
+        },
+    },
 ]
+
+CHARGE_COLUMNS = ("walmart_fee", "label_walmart", "label_third_party", "warehouse_cost")
 
 
 def _norm(text) -> str:
@@ -73,20 +96,21 @@ def sku_variants(value):
 
 def read_books():
     rows = []
-    for filename, sheets, k_order, k_sku, k_cost in BOOKS:
+    for spec in BOOKS:
+        filename = spec["file"]
         path = os.path.join(REPO, filename)
         if not os.path.exists(path):
             print(f"  skipping (not found): {filename}")
             continue
         book = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        for sheet in sheets:
+        for sheet in spec["sheets"]:
             if sheet not in book.sheetnames:
                 continue
             ws, header, count = book[sheet], None, 0
             for row in ws.iter_rows(values_only=True):
                 if header is None:
                     labels = [_norm(c) for c in (row or [])]
-                    if k_order in labels and k_cost in labels:
+                    if spec["order"] in labels and spec["cost"] in labels:
                         header = {label: i for i, label in enumerate(labels) if label}
                     continue
 
@@ -94,14 +118,25 @@ def read_books():
                     i = header.get(key)
                     return row[i] if i is not None and i < len(row) else None
 
-                order_id = _order_id(cell(k_order))
-                sku = str(cell(k_sku) or "").strip()
-                cost = _number(cell(k_cost))
+                order_id = _order_id(cell(spec["order"]))
+                sku = str(cell(spec["sku"]) or "").strip()
+                cost = _number(cell(spec["cost"]))
+                if not (order_id and sku):
+                    continue
+
+                record = {"customer_order_id": order_id, "sku": sku,
+                          "source": f"{filename}#{sheet}"}
                 # A cost of 0 is an unfilled cell, not a free product.
-                if order_id and sku and cost and cost > 0:
-                    rows.append({"customer_order_id": order_id, "sku": sku,
-                                 "unit_cost": cost,
-                                 "source": f"{filename}#{sheet}"})
+                record["unit_cost"] = cost if (cost and cost > 0) else None
+                for column, label in spec["charges"].items():
+                    value = _number(cell(label))
+                    # 0 is meaningful for a charge -- "no third-party label was
+                    # bought" is a fact, unlike a blank unit cost.
+                    record[column] = value if value is not None else None
+
+                if record["unit_cost"] is not None or any(
+                        record.get(c) for c in CHARGE_COLUMNS):
+                    rows.append(record)
                     count += 1
             print(f"  {filename:32} [{sheet:16}] {count:4} rows")
         book.close()
@@ -151,7 +186,8 @@ def main():
         if not target:
             continue
         exact[(row["customer_order_id"], target)] = row
-        per_sku[target].append(row["unit_cost"])
+        if row.get("unit_cost"):
+            per_sku[target].append(row["unit_cost"])
 
     realized = [l for l in lines
                 if (l["status"] or "").strip().lower() in ("shipped", "delivered")]
@@ -162,7 +198,7 @@ def main():
         key = (customer_order.get(line["purchase_order_id"]), sku)
         source_id = f"{line['purchase_order_id']}:{line['line_number']}"
         match = exact.get(key)
-        if match:
+        if match and match.get("unit_cost"):
             basis, cost, source = "exact", match["unit_cost"], match["source"]
         elif per_sku.get(sku):
             costs = per_sku[sku]
@@ -174,12 +210,27 @@ def main():
             tally["no_data"] += 1
             continue
         tally[basis] += 1
-        out.append({"store_id": store_id, "source_id": source_id, "sku": sku,
-                    "unit_cost": round(cost, 4), "basis": basis, "source": source})
+
+        record = {"store_id": store_id, "source_id": source_id, "sku": sku,
+                  "unit_cost": round(cost, 4), "basis": basis, "source": source}
+        # Charges are only ever taken from this line's own row. Unlike unit cost
+        # they are not a property of the SKU -- one order ships third-party and
+        # the next through Walmart -- so imputing them across lines would invent
+        # costs that were never incurred.
+        for column in CHARGE_COLUMNS:
+            value = match.get(column) if match else None
+            if value is not None:
+                record[column] = round(value, 4)
+                tally[f"has_{column}"] += 1
+        out.append(record)
 
     print(f"  realized lines            : {len(realized)}")
     for basis in ("exact", "sku_single", "sku_imputed", "no_data"):
         print(f"    {basis:<12} {tally[basis]:>4}")
+    print("  charges captured:")
+    for column in CHARGE_COLUMNS:
+        total = sum(r.get(column) or 0 for r in out)
+        print(f"    {column:<20} {tally['has_' + column]:>4} lines   {total:>10,.2f}")
 
     if args.dry_run:
         print("\n  dry run -- nothing written")

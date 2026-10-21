@@ -447,3 +447,73 @@ def test_exact_line_cost_still_consumes_inventory():
     cogs = amounts(result, "cogs")
     assert -70.0 in cogs                      # PO1 at its exact cost
     assert len([c for c in cogs if c == -50.0]) == 0   # PO2 cannot reuse the stock
+
+# ------------------------------------------- per-line charges (A5)
+
+def lc2(po="PO1", n="1", sku="SKU1", unit=7.0, basis="exact", **charges):
+    row = {"source_id": f"{po}:{n}", "sku": sku, "unit_cost": unit, "basis": basis}
+    row.update(charges)
+    return row
+
+
+def test_third_party_label_always_posts():
+    """Bought outside Walmart, so it is in no API. The workbook is the only
+    source and there is nothing to defer to."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(label_third_party=2.5)])
+    assert amounts(result, "fee_label_3p") == [-2.5]
+
+
+def test_workbook_label_fills_a_settlement_gap():
+    """October has no recon file yet."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(label_walmart=6.03)],
+                 settlement_lines=[], fee_category_map=FEE_MAP)
+    assert amounts(result, "fee_label") == [-6.03]
+
+
+def test_settlement_wins_over_the_workbook():
+    """Both describe the same label. Posting both would double-count."""
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=20.0)],
+        purchases=[],
+        line_costs=[lc2(label_walmart=6.03)],
+        settlement_lines=[settle("Fee/Reimbursement", -5.80, cid="C1", sku="SKU1")],
+        fee_category_map=FEE_MAP,
+    )
+    labels = amounts(result, "fee_label")
+    assert labels == [-5.80], "workbook label should not be posted alongside settlement"
+
+
+def test_workbook_referral_fills_a_settlement_gap():
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.41)],
+                 settlement_lines=[], fee_category_map=FEE_MAP)
+    assert amounts(result, "fee_referral") == [-1.41]
+
+
+def test_warehouse_is_per_order_not_per_unit():
+    """The workbook charges 1.50 on a six-unit line."""
+    result = run(order_lines=[line(qty=6, revenue=41.16)], purchases=[],
+                 line_costs=[lc2(unit=1.47, warehouse_cost=1.5)])
+    assert amounts(result, "warehouse") == [-1.5]
+
+
+def test_warehouse_falls_back_to_per_unit_product_cost():
+    result = run(order_lines=[line(qty=2, revenue=20.0)], purchases=[],
+                 product_costs=[{"sku": "SKU1", "unit_cost": 3.0, "warehouse_cost": 1.5}],
+                 line_costs=[])
+    assert amounts(result, "warehouse") == [-3.0]
+
+
+def test_all_charges_reduce_net_profit():
+    result = run(
+        order_lines=[line(qty=1, revenue=10.0, shipping=5.98)],
+        purchases=[],
+        line_costs=[lc2(unit=1.96, walmart_fee=0.64, label_walmart=0.0,
+                        label_third_party=2.5, warehouse_cost=1.5)],
+        settlement_lines=[], fee_category_map=FEE_MAP,
+    )
+    # 10.00 + 5.98 - 1.96 - 0.64 - 2.50 - 1.50
+    assert result.net() == pytest.approx(9.38)
