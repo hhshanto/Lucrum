@@ -45,6 +45,11 @@ def main():
     parser = argparse.ArgumentParser(description="Post facts into ledger_entries")
     parser.add_argument("--dry-run", action="store_true",
                         help="compute and report, but write nothing")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="discard the existing ledger first. Required after "
+                             "changing how any figure is derived: posting is "
+                             "idempotent, so an entry built from a wrong input "
+                             "is skipped rather than replaced.")
     parser.add_argument("--store-id")
     args = parser.parse_args()
 
@@ -57,6 +62,12 @@ def main():
     for store in stores.execute().data:
         store_id, name = store["store_id"], store["name"]
         print(f"Posting {name!r} ({store_id})...")
+
+        if args.rebuild and not args.dry_run:
+            wiped = sb.rpc("rebuild_ledger", {"p_store_id": store_id}).execute().data
+            if wiped:
+                print(f"  rebuild: cleared {wiped[0]['deleted_entries']} entries, "
+                      f"{wiped[0]['deleted_uncosted']} uncosted")
 
         orders = fetch_all(sb, "orders",
                            "purchase_order_id,customer_order_id,order_date",
@@ -76,8 +87,11 @@ def main():
                                store_id=store_id)
         fee_map = fetch_all(sb, "fee_category_map", "amount_type,category",
                             store_id=store_id)
-        line_costs = fetch_all(sb, "order_line_costs", "source_id,sku,unit_cost,basis",
-                               store_id=store_id)
+        line_costs = fetch_all(
+            sb, "order_line_costs",
+            "source_id,sku,unit_cost,basis,walmart_fee,label_walmart,"
+            "label_third_party,warehouse_cost",
+            store_id=store_id)
 
         print(f"  inputs: {len(orders)} orders, {len(lines)} lines, "
               f"{len(purchases)} purchases, {len(settlement)} settlement rows")

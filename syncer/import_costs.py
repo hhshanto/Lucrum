@@ -107,6 +107,7 @@ def read_books():
             if sheet not in book.sheetnames:
                 continue
             ws, header, count = book[sheet], None, 0
+            last_sku = ""
             for row in ws.iter_rows(values_only=True):
                 if header is None:
                     labels = [_norm(c) for c in (row or [])]
@@ -121,6 +122,17 @@ def read_books():
                 order_id = _order_id(cell(spec["order"]))
                 sku = str(cell(spec["sku"]) or "").strip()
                 cost = _number(cell(spec["cost"]))
+
+                # The books are grouped by item and written with fill-down: only
+                # the first row of a block carries the SKU, every later row for
+                # the same item leaves it blank. Aug-26 has 120 rows but only 34
+                # written SKUs, so discarding the blanks lost two thirds of every
+                # charge column.
+                if sku:
+                    last_sku = sku
+                elif order_id:
+                    sku = last_sku
+
                 if not (order_id and sku):
                     continue
 
