@@ -62,19 +62,31 @@ def _to_number(value):
         return None
 
 
+def _parse_report_date(value) -> dt.date:
+    """Walmart returns recon report dates as MMDDYYYY, e.g. "07282026" = 28 Jul 2026.
+
+    These are NOT ISO. `dt.date.fromisoformat("07282026")` reads it as
+    year 0728, month 20 and raises "month must be in 1..12" -- which the caller
+    used to swallow, leaving settlement_lines permanently empty.
+    """
+    return dt.datetime.strptime(str(value).strip(), "%m%d%Y").date()
+
+
 def sync_settlement(supabase, store_id: str, client: WalmartClient, days: int):
     cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).date()
 
-    available_dates = client.get_available_recon_dates()
-    report_dates = [d for d in available_dates if dt.date.fromisoformat(str(d)[:10]) >= cutoff]
+    # Keep both forms: the raw MMDDYYYY string is what the API wants back,
+    # the parsed date is what the cutoff compares and what the table stores.
+    available = [(raw, _parse_report_date(raw)) for raw in client.get_available_recon_dates()]
+    report_dates = [(raw, parsed) for raw, parsed in available if parsed >= cutoff]
 
     total_rows = 0
-    for report_date in report_dates:
+    for api_date, report_date in report_dates:
         rows = []
-        for raw in client.get_recon_report(report_date):
+        for raw in client.get_recon_report(api_date):
             rows.append({
                 "store_id": store_id,
-                "report_date": report_date,
+                "report_date": report_date.isoformat(),
                 "customer_order_id": _field(raw, "Customer Order #", "customerOrderId"),
                 "order_line_number": _field(raw, "Customer Order line #", "orderLineNumber"),
                 "sku": _field(raw, "Partner Item Id", "sku"),
@@ -86,7 +98,14 @@ def sync_settlement(supabase, store_id: str, client: WalmartClient, days: int):
             })
 
         # Re-syncing a date should replace what's there, not duplicate it.
-        supabase.table("settlement_lines").delete().eq("store_id", store_id).eq("report_date", report_date).execute()
+        # NOTE: this delete-then-insert is not transactional -- an interruption
+        # between the two loses the date. Replaced by a content-hash unique index
+        # + "on conflict do nothing" in migration_settlement_fixes.sql.
+        supabase.table("settlement_lines") \
+            .delete() \
+            .eq("store_id", store_id) \
+            .eq("report_date", report_date.isoformat()) \
+            .execute()
         if rows:
             supabase.table("settlement_lines").insert(rows).execute()
 

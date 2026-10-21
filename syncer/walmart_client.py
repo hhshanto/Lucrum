@@ -110,27 +110,55 @@ class WalmartClient:
                 break
 
     def get_available_recon_dates(self) -> list[str]:
-        """Return the list of report dates available from the recon report API."""
+        """Return the report dates available from the recon report API, as the
+        raw MMDDYYYY strings Walmart uses (e.g. "07282026" = 28 July 2026).
+
+        Walmart answers with a single key, `availableApReportDates`. Match it
+        explicitly: silently returning [] on an unexpected shape is
+        indistinguishable from "this seller has no reports", which is exactly how
+        the empty settlement table went unnoticed.
+        """
         data = self._get(f"{BASE_URL}/report/reconreport/availableReconFiles", params={"reportVersion": "v1"})
-        for key in ("availableApReportDates", "availableReconFiles", "availableDates", "files", "dates"):
-            if key in data:
-                return data[key]
-        return []
+        if "availableApReportDates" not in data:
+            raise RuntimeError(
+                "availableReconFiles response has no 'availableApReportDates' key; "
+                f"got {sorted(data)!r}. Walmart may have changed the payload."
+            )
+        return data["availableApReportDates"]
 
     def get_recon_report(self, report_date: str):
-        """Yield every row of the recon (settlement) report for a given date."""
+        """Yield every row of the recon (settlement) report for one MMDDYYYY date.
+
+        Note the page-size parameter is `noOfRecords`, NOT `limit`. Sending
+        `limit` makes Walmart reject the call with
+        REQ_PARAM_NOT_FOUND / 'noOfRecords ... is not present'.
+        """
         offset = 0
-        limit = 1000
+        page_size = 1000
         while True:
             data = self._get(
                 f"{BASE_URL}/report/reconreport/reconFileJson",
-                params={"reportVersion": "v1", "reportDate": report_date, "offset": offset, "limit": limit},
+                params={
+                    "reportVersion": "v1",
+                    "reportDate": report_date,
+                    "offset": offset,
+                    "noOfRecords": page_size,
+                },
             )
             rows = data.get("reportData", [])
             for row in rows:
                 yield row
 
+            # Walmart signals "no more pages" with nextOffset = -1, so a plain
+            # equality check against the current offset is not enough: feeding
+            # -1 back produces a 400.
             next_offset = data.get("nextOffset")
-            if not rows or next_offset in (None, "", offset):
+            if not rows or next_offset in (None, ""):
+                break
+            try:
+                next_offset = int(next_offset)
+            except (TypeError, ValueError):
+                break
+            if next_offset <= offset:
                 break
             offset = next_offset
