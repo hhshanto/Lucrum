@@ -163,9 +163,12 @@ const modules = {
     render: (d) => renderReturns(d.returns),
   },
   "order-details": {
-    tables: ["order_details"],
+    // ledger_order_details, not order_details: the legacy view still recomputes
+    // profit from current state, so the Orders tab was disagreeing with
+    // Dashboard and Profit. Same column names, so this is a drop-in swap.
+    tables: ["ledger_order_details"],
     skeleton: [[orderDetailsTableBody, 21]],
-    render: (d) => renderOrderDetails(d.order_details),
+    render: (d) => renderOrderDetails(d.ledger_order_details),
   },
   profit: {
     tables: ["ledger_summary"],
@@ -577,7 +580,7 @@ for (const btn of tabButtons) {
 //   monthly_profit -- the Profit tab IS the cross-month comparison; filtering it
 //     to one month would leave a single row and nothing to compare it to.
 const DATE_COLUMN = {
-  order_details: "order_date",
+  ledger_order_details: "order_date",
   profit_by_sku: "month",
   ledger_sku_monthly: "month",
   purchases: "purchase_date",
