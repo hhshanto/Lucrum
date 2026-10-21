@@ -88,8 +88,16 @@ cross join (values
 -- ============================================================================
 -- 4. QUARANTINE ON THE FULL KEY
 -- ============================================================================
+-- Dropped rather than replaced: transaction_type becomes column 2, and
+-- "create or replace view" can only append trailing columns, never rename or
+-- reorder (ERROR 42P16). Views hold no data, so this costs nothing.
+--
+-- fee_calibration below keeps its exact column list, so it can be replaced
+-- in place.
 
-create or replace view unmapped_amount_types with (security_invoker = on) as
+drop view if exists unmapped_amount_types;
+
+create view unmapped_amount_types with (security_invoker = on) as
 select
   sl.store_id,
   coalesce(sl.transaction_type, '(null)') as transaction_type,
