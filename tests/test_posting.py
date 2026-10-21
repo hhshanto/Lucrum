@@ -551,3 +551,55 @@ def test_seller_sourced_charges_are_never_flagged():
     assert amounts(result, "fee_label_3p") == [-2.5]
     assert amounts(result, "warehouse") == [-1.5]
     assert not [u for u in result.uncosted if u["reason"] == "estimated_fee"]
+
+# ------------------------------------------------- fee calibration (A9)
+
+CAL = {"fee_referral": {"pairs": 366, "ratio_median": 1.249},
+       "fee_label":    {"pairs": 96,  "ratio_median": 1.030}}
+
+
+def test_workbook_referral_is_divided_by_the_observed_ratio():
+    """The workbook bills referral ~25% above what Walmart charges, measured
+    across 366 settled pairs spread over 0.6%."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.25)],
+                 settlement_lines=[], fee_category_map=FEE_MAP,
+                 fee_calibration=CAL)
+    assert amounts(result, "fee_referral") == [pytest.approx(-1.0, abs=0.01)]
+
+
+def test_calibration_is_skipped_on_too_small_a_sample():
+    """Correcting by noise is worse than not correcting."""
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.25)],
+                 settlement_lines=[], fee_category_map=FEE_MAP,
+                 fee_calibration={"fee_referral": {"pairs": 3, "ratio_median": 1.249}})
+    assert amounts(result, "fee_referral") == [-1.25]
+
+
+def test_no_calibration_leaves_the_figure_alone():
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.25)],
+                 settlement_lines=[], fee_category_map=FEE_MAP)
+    assert amounts(result, "fee_referral") == [-1.25]
+
+
+def test_settled_fees_are_never_calibrated():
+    """Settlement is the actual charge. There is nothing to correct."""
+    result = run(
+        orders=[order(customer="C1")],
+        order_lines=[line(qty=1, revenue=20.0)],
+        purchases=[],
+        line_costs=[lc2(walmart_fee=1.25)],
+        settlement_lines=[settle("Commission on Product", -1.35, cid="C1", sku="SKU1")],
+        fee_category_map=FEE_MAP, fee_calibration=CAL,
+    )
+    assert amounts(result, "fee_referral") == [-1.35]
+
+
+def test_calibrated_entries_record_the_ratio_used():
+    result = run(order_lines=[line(qty=1, revenue=20.0)], purchases=[],
+                 line_costs=[lc2(walmart_fee=1.25)],
+                 settlement_lines=[], fee_category_map=FEE_MAP, fee_calibration=CAL)
+    note = [e["note"] for e in result.entries if e["entry_type"] == "fee_referral"][0]
+    assert "1.2490" in note and "366" in note

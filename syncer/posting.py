@@ -129,6 +129,26 @@ def _as_date(value):
 # Recognition date
 # --------------------------------------------------------------------------
 
+MIN_CALIBRATION_PAIRS = 20
+
+
+def _calibrate(amount, entry_type, calibration):
+    """Scale a workbook fee by the ratio observed against settled lines.
+
+    Returns (amount, note). Below MIN_CALIBRATION_PAIRS the sample is too small
+    to trust, so the figure is posted unadjusted rather than corrected by noise.
+    """
+    row = (calibration or {}).get(entry_type)
+    if not row or (row.get("pairs") or 0) < MIN_CALIBRATION_PAIRS:
+        return amount, "workbook estimate, uncalibrated"
+    ratio = row.get("ratio_median") or 0
+    if ratio <= 0:
+        return amount, "workbook estimate, uncalibrated"
+    return (amount / float(ratio),
+            f"workbook estimate / {float(ratio):.4f} "
+            f"(calibrated on {row['pairs']} settled lines)")
+
+
 def recognition_date(line: dict, order: dict):
     """When a line hits the P&L.
 
@@ -175,7 +195,8 @@ def _entry(store_id, date, entry_type, amount, *, sku=None, quantity=None,
 
 
 def post(store_id, orders, order_lines, purchases, product_costs,
-         settlement_lines=(), fee_category_map=(), line_costs=()) -> PostingResult:
+         settlement_lines=(), fee_category_map=(), line_costs=(),
+         fee_calibration=None) -> PostingResult:
     """Build every ledger entry implied by the given facts.
 
     Pure. Call it twice with the same inputs and you get the same output, which
@@ -291,18 +312,23 @@ def post(store_id, orders, order_lines, purchases, product_costs,
             # workbook-sourced Walmart charge is an ESTIMATE, never a known
             # figure, and the line is flagged accordingly. Settlement supersedes
             # it automatically once the recon file arrives.
+            # Calibrated against every line where both a workbook figure and a
+            # settled figure exist. The workbook bills referral about 25% above
+            # what Walmart charges -- 366 pairs spread over just 0.6% -- so
+            # posting it at face value would overstate the fee badly. Dividing
+            # by the observed ratio is a far better estimate of the real charge.
             workbook_fee_used = False
             if charges.get("label_walmart") and (customer_order, sku) not in settled["wfs_label_fee"]:
+                amount, note = _calibrate(charges["label_walmart"], "fee_label", fee_calibration)
                 result.entries.append(_entry(
-                    store_id, date, "fee_label", -charges["label_walmart"],
-                    sku=sku, quantity=qty, source_kind="manual", src=src,
-                    note="workbook label, ESTIMATE pending settlement"))
+                    store_id, date, "fee_label", -amount,
+                    sku=sku, quantity=qty, source_kind="manual", src=src, note=note))
                 workbook_fee_used = True
             if charges.get("walmart_fee") and (customer_order, sku) not in settled["walmart_fee"]:
+                amount, note = _calibrate(charges["walmart_fee"], "fee_referral", fee_calibration)
                 result.entries.append(_entry(
-                    store_id, date, "fee_referral", -charges["walmart_fee"],
-                    sku=sku, quantity=qty, source_kind="manual", src=src,
-                    note="workbook referral fee, ESTIMATE pending settlement"))
+                    store_id, date, "fee_referral", -amount,
+                    sku=sku, quantity=qty, source_kind="manual", src=src, note=note))
                 workbook_fee_used = True
             if workbook_fee_used:
                 flag("estimated_fee")

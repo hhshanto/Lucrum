@@ -96,8 +96,17 @@ def main():
         print(f"  inputs: {len(orders)} orders, {len(lines)} lines, "
               f"{len(purchases)} purchases, {len(settlement)} settlement rows")
 
+        # Derived from settled lines, so it sharpens itself as recon files land.
+        calibration = {r["entry_type"]: r for r in
+                       fetch_all(sb, "fee_calibration",
+                                 "entry_type,pairs,ratio_median,ratio_p10,ratio_p90",
+                                 store_id=store_id)}
+        for entry_type, row in sorted(calibration.items()):
+            print(f"  calibration: {entry_type:<13} ratio {row['ratio_median']} "
+                  f"on {row['pairs']} settled pairs")
+
         result = post(store_id, orders, lines, purchases, costs, settlement, fee_map,
-                      line_costs=line_costs)
+                      line_costs=line_costs, fee_calibration=calibration)
 
         print(f"  {len(result.entries)} entries, {len(result.uncosted)} uncosted lines")
         for entry_type, total in sorted(result.totals().items()):
