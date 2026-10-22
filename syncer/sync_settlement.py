@@ -32,6 +32,11 @@ load_dotenv()
 
 MAX_DAYS = 90
 
+# Comfortably above the 300s subprocess cap in web/app.py, so a live run is never
+# stolen mid-flight. The cost is a bounded wait if the syncer is hard-killed; see
+# migration_a24_sync_lock.sql.
+LOCK_TTL_SECONDS = 900
+
 
 def _field(row: dict, *names):
     for name in names:
@@ -86,12 +91,14 @@ def sync_settlement(supabase, store_id: str, client: WalmartClient, days: int):
     report_dates = [(raw, parsed) for raw, parsed in available if parsed >= cutoff]
 
     total_rows = 0
+    skipped_dates = []
     for api_date, report_date in report_dates:
         rows = []
         for raw in client.get_recon_report(api_date):
+            # store_id and report_date are deliberately absent: the RPC stamps
+            # both from its own arguments so a row can never land in another
+            # store or outside the date being replaced.
             rows.append({
-                "store_id": store_id,
-                "report_date": report_date.isoformat(),
                 "customer_order_id": _field(raw, "Customer Order #", "customerOrderId"),
                 "order_line_number": _field(raw, "Customer Order line #", "orderLineNumber"),
                 "sku": _field(raw, "Partner Item Id", "sku"),
@@ -102,21 +109,36 @@ def sync_settlement(supabase, store_id: str, client: WalmartClient, days: int):
                 "transaction_posted_at": _parse_timestamp(_field(raw, "Transaction Posted Timestamp", "transactionPostedTimestamp")),
             })
 
-        # Re-syncing a date should replace what's there, not duplicate it.
-        # NOTE: this delete-then-insert is not transactional -- an interruption
-        # between the two loses the date. Replaced by a content-hash unique index
-        # + "on conflict do nothing" in migration_settlement_fixes.sql.
-        supabase.table("settlement_lines") \
-            .delete() \
-            .eq("store_id", store_id) \
-            .eq("report_date", report_date.isoformat()) \
-            .execute()
-        if rows:
-            supabase.table("settlement_lines").insert(rows).execute()
+        # Re-syncing a date replaces what's there rather than duplicating it.
+        # This used to be a .delete() followed by a separate .insert(): two
+        # commits, so a crash or the 300s web timeout between them deleted the
+        # date and never refilled it, permanently losing the only real record of
+        # Walmart's fees for that day. migration_a23 moved both halves into one
+        # transaction. (The old comment here claimed a migration_settlement_fixes.sql
+        # had already fixed this. That file never existed.)
+        result = supabase.rpc("replace_settlement_date", {
+            "p_store_id": store_id,
+            "p_report_date": report_date.isoformat(),
+            "p_rows": rows,
+        }).execute().data
+        # PostgREST returns a one-row array for a `returns table` function, but
+        # tolerate a bare object or an empty body rather than blowing up on a
+        # shape change in the client library.
+        outcome = (result[0] if result else None) if isinstance(result, list) else result
+
+        # An empty report over a date that already has rows is refused rather
+        # than applied -- far more likely an API hiccup than a genuinely empty
+        # settlement day. Surfaced here so it is a visible decision, not silence.
+        if outcome and outcome.get("skipped"):
+            skipped_dates.append(report_date.isoformat())
+            continue
 
         total_rows += len(rows)
 
-    print(f"  synced {total_rows} settlement rows across {len(report_dates)} report date(s)")
+    note = f", kept {len(skipped_dates)} date(s) that came back empty" if skipped_dates else ""
+    print(f"  synced {total_rows} settlement rows across {len(report_dates)} report date(s){note}")
+    if skipped_dates:
+        print(f"  NOT overwritten (empty response): {', '.join(skipped_dates)}")
 
 
 def main():
@@ -149,26 +171,50 @@ def main():
             continue
 
         print(f"Syncing settlement for {name!r} ({store_id})...")
-        started = dt.datetime.now(dt.timezone.utc)
-        try:
-            client = WalmartClient(creds.data[0]["client_id"], decrypt(creds.data[0]["encrypted_client_secret"]))
-            sync_settlement(supabase, store_id, client, days)
-        except Exception as exc:
-            detail = f"{type(exc).__name__}: {exc}"[:2000]
-            print(f"  FAILED: {detail}")
-            failures += 1
-            supabase.table("sync_state").upsert({
-                "store_id": store_id, "feed": "settlement",
-                "last_run_at": started.isoformat(), "last_status": "failed",
-                "last_error": detail,
-            }).execute()
+
+        # One settlement run per store at a time. Two overlapping runs used to be
+        # able to interleave their delete and insert halves and erase a report
+        # date; A23 made each replace atomic, and this stops them racing at all.
+        token = supabase.rpc("acquire_sync_lock", {
+            "p_store_id": store_id, "p_feed": "settlement",
+            "p_ttl_seconds": LOCK_TTL_SECONDS,
+        }).execute().data
+        if not token:
+            # Not a failure -- the work is already being done. Exiting non-zero
+            # here would make a harmless double-click look like a broken sync.
+            print(f"  SKIPPED: a settlement sync is already running for {name!r}")
             continue
 
-        supabase.table("sync_state").upsert({
-            "store_id": store_id, "feed": "settlement",
-            "watermark": started.isoformat(), "last_run_at": started.isoformat(),
-            "last_status": "ok", "last_error": None,
-        }).execute()
+        started = dt.datetime.now(dt.timezone.utc)
+        # Nested so the lease outlives the sync_state write, not just the API
+        # work -- releasing earlier would let the next run observe a half-updated
+        # state. Same shape as _run_feed in sync.py.
+        try:
+            try:
+                client = WalmartClient(creds.data[0]["client_id"], decrypt(creds.data[0]["encrypted_client_secret"]))
+                sync_settlement(supabase, store_id, client, days)
+            except Exception as exc:
+                detail = f"{type(exc).__name__}: {exc}"[:2000]
+                print(f"  FAILED: {detail}")
+                failures += 1
+                supabase.table("sync_state").upsert({
+                    "store_id": store_id, "feed": "settlement",
+                    "last_run_at": started.isoformat(), "last_status": "failed",
+                    "last_error": detail,
+                }).execute()
+                continue
+
+            supabase.table("sync_state").upsert({
+                "store_id": store_id, "feed": "settlement",
+                "watermark": started.isoformat(), "last_run_at": started.isoformat(),
+                "last_status": "ok", "last_error": None,
+            }).execute()
+        finally:
+            # Runs on the `continue` above too. A hard kill is the only path that
+            # skips this, and the lease's TTL covers that.
+            supabase.rpc("release_sync_lock", {
+                "p_store_id": store_id, "p_feed": "settlement", "p_token": token,
+            }).execute()
 
     if failures:
         # Exit non-zero so web/app.py can trust the return code instead of

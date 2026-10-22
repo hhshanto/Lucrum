@@ -28,6 +28,11 @@ MAX_DAYS = 180
 # overlap free.
 OVERLAP = dt.timedelta(hours=24)
 
+# Comfortably above the 300s subprocess cap in web/app.py, so a live run is never
+# stolen mid-flight. The cost is a bounded wait if the syncer is hard-killed; see
+# migration_a24_sync_lock.sql.
+LOCK_TTL_SECONDS = 900
+
 
 def _parse_order_date(order: dict) -> str | None:
     raw = order.get("orderDate")
@@ -205,10 +210,22 @@ def _watermark(supabase, store_id, feed):
 def _run_feed(supabase, store_id, feed, work, *, since):
     """Run one feed, logging it, isolated from the others.
 
+    Returns "ok", "failed", or "locked".
+
     The watermark advances only on success, so an interruption just means the
     next run redoes that window -- harmless, because every write is an upsert.
     That is what makes the 300-second web timeout safe.
     """
+    # One run per store+feed. sync_runs has recorded status='running' since A13
+    # but nothing ever read it, so nothing stopped a second tab, a second user,
+    # or the Orders and Fees buttons from racing the same watermark.
+    token = supabase.rpc("acquire_sync_lock", {
+        "p_store_id": store_id, "p_feed": feed, "p_ttl_seconds": LOCK_TTL_SECONDS,
+    }).execute().data
+    if not token:
+        print(f"  SKIPPED [{feed}]: already running")
+        return "locked"
+
     started = dt.datetime.now(dt.timezone.utc)
     run = supabase.table("sync_runs").insert({
         "store_id": store_id, "feed": feed, "status": "running",
@@ -216,34 +233,43 @@ def _run_feed(supabase, store_id, feed, work, *, since):
         "window_from": since.isoformat() if since else None,
     }).execute().data[0]
 
+    # The lock has to outlive the watermark write, not just the API work:
+    # releasing it first would let the next run start, read the OLD watermark and
+    # re-pull a window this run had already covered. Hence the nested try.
     try:
-        written = work()
-    except Exception as exc:
-        detail = f"{type(exc).__name__}: {exc}"[:2000]
+        try:
+            written = work()
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"[:2000]
+            supabase.table("sync_runs").update({
+                "status": "failed", "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "error": detail,
+            }).eq("run_id", run["run_id"]).execute()
+            supabase.table("sync_state").upsert({
+                "store_id": store_id, "feed": feed,
+                "last_run_at": started.isoformat(), "last_status": "failed",
+                "last_error": detail,
+            }).execute()
+            print(f"  FAILED [{feed}]: {detail}")
+            return "failed"
+
         supabase.table("sync_runs").update({
-            "status": "failed", "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "error": detail,
+            "status": "ok", "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "rows_written": written,
         }).eq("run_id", run["run_id"]).execute()
+        # Watermark is the moment the run STARTED, minus overlap, so anything
+        # modified while it was running is picked up next time rather than missed.
         supabase.table("sync_state").upsert({
             "store_id": store_id, "feed": feed,
-            "last_run_at": started.isoformat(), "last_status": "failed",
-            "last_error": detail,
+            "watermark": (started - OVERLAP).isoformat(),
+            "last_run_at": started.isoformat(), "last_status": "ok", "last_error": None,
         }).execute()
-        print(f"  FAILED [{feed}]: {detail}")
-        return False
-
-    supabase.table("sync_runs").update({
-        "status": "ok", "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "rows_written": written,
-    }).eq("run_id", run["run_id"]).execute()
-    # Watermark is the moment the run STARTED, minus overlap, so anything
-    # modified while it was running is picked up next time rather than missed.
-    supabase.table("sync_state").upsert({
-        "store_id": store_id, "feed": feed,
-        "watermark": (started - OVERLAP).isoformat(),
-        "last_run_at": started.isoformat(), "last_status": "ok", "last_error": None,
-    }).execute()
-    return True
+        return "ok"
+    finally:
+        # Only a hard kill skips this; the lease TTL covers that case.
+        supabase.rpc("release_sync_lock", {
+            "p_store_id": store_id, "p_feed": feed, "p_token": token,
+        }).execute()
 
 
 def main():
@@ -296,13 +322,16 @@ def main():
         # Each feed succeeds or fails on its own. Previously one shared
         # try/except meant a products failure reported the whole run as failed
         # even though orders had already been written.
-        if not _run_feed(supabase, store_id, "orders",
-                         lambda: sync_orders(supabase, store_id, client, days, since=since),
-                         since=since):
+        #
+        # "locked" is deliberately not a failure: the work is already in flight,
+        # and exiting non-zero would make a double-click look like a broken sync.
+        if _run_feed(supabase, store_id, "orders",
+                     lambda: sync_orders(supabase, store_id, client, days, since=since),
+                     since=since) == "failed":
             failures += 1
-        if not _run_feed(supabase, store_id, "products",
-                         lambda: sync_products(supabase, store_id, client),
-                         since=None):
+        if _run_feed(supabase, store_id, "products",
+                     lambda: sync_products(supabase, store_id, client),
+                     since=None) == "failed":
             failures += 1
 
     if failures:
