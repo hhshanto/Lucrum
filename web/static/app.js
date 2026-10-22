@@ -2057,7 +2057,7 @@ function renderDrawerDetail(row) {
   const where = [row.customer_city, row.customer_state].filter(Boolean).join(", ");
   grid("Order", [
     ["Date", fmtDate(row.order_date)],
-    ["Status", statusBadgeEl(row.order_status)],
+    ["Status", statusBadgeEl(row.order_status, row.returns)],
     ["Quantity", fmtNum(row.order_qty)],
     ["Customer", row.customer_name],
     ["Ships to", where],
@@ -2477,7 +2477,13 @@ function totalsRow(t, lineCount) {
 // order_lines.status is free text straight from Walmart with no check
 // constraint behind it, so match loosely rather than on exact equality. Both
 // spellings of cancelled appear in the wild.
-function monthStatusClass(status) {
+function monthStatusClass(status, returns) {
+  // Walmart's order API never reports a return -- a refunded line still reads
+  // Delivered, and across 553 lines the status is only ever Delivered,
+  // Shipped, Acknowledged or Cancelled. The refund is only visible in
+  // settlement, which is where `returns` comes from. Showing the raw status
+  // would print "Delivered" on a line the customer sent back.
+  if (Number(returns || 0) !== 0) return "status-returned";
   const s = String(status || "").trim().toLowerCase();
   if (!s) return "";
   if (s.includes("cancel")) return "status-cancelled";
@@ -2496,20 +2502,31 @@ const STATUS_TONE = {
   "status-acknowledged": "orange",
   "status-created": "orange",
   "status-cancelled": "red",
+  "status-returned": "purple",
 };
 
-function statusBadgeSpec(status) {
-  if (!String(status || "").trim()) return null;
-  return { label: status, tone: STATUS_TONE[monthStatusClass(status)] || "gray" };
+function statusBadgeSpec(status, returns) {
+  const returned = Number(returns || 0) !== 0;
+  if (!returned && !String(status || "").trim()) return null;
+  const cls = monthStatusClass(status, returns);
+  return {
+    label: returned ? "Returned" : status,
+    tone: STATUS_TONE[cls] || "gray",
+    title: returned
+      ? `Walmart still reports this as "${status}" -- its order API never marks a `
+        + "return. The refund was found in the settlement report."
+      : "",
+  };
 }
 
 // Same pill, built as an element for the drawer's fact grid, which takes Nodes.
-function statusBadgeEl(status) {
-  const spec = statusBadgeSpec(status);
+function statusBadgeEl(status, returns) {
+  const spec = statusBadgeSpec(status, returns);
   if (!spec) return "";
   const span = document.createElement("span");
   span.className = `badge badge-${spec.tone}`;
   span.textContent = spec.label;
+  if (spec.title) span.title = spec.title;
   return span;
 }
 
@@ -2554,11 +2571,11 @@ function monthlySheetRow(row) {
         : `${fmtNum(row.roi_pct)}%`,
       cls: posted ? signClass(row.roi_pct) : "muted",
     },
-    { badge: statusBadgeSpec(row.order_status) },
+    { badge: statusBadgeSpec(row.order_status, row.returns) },
     { text: "", cls: "col-tracking" },
   ]);
 
-  const statusCls = monthStatusClass(row.order_status);
+  const statusCls = monthStatusClass(row.order_status, row.returns);
   if (statusCls) tr.classList.add(statusCls);
 
   if (!posted) {

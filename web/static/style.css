@@ -914,6 +914,12 @@ h4.drawer-section {
 #monthly-sheet-table tbody tr.status-created td      { background: #ffedd5; }
 #monthly-sheet-table tbody tr.status-cancelled td    { background: #fee2e2; }
 
+/* Returned. Not a Walmart status at all -- it is derived from settlement,
+   because the order API reports a refunded line as Delivered forever. Violet
+   keeps it distinct from Cancelled, which is a different thing: cancelled
+   never shipped, returned shipped and came back. */
+#monthly-sheet-table tbody tr.status-returned td     { background: #ede9fe; }
+
 /* Hover has to be td-level for the same reason, and must outrank the tints so
    the row you are pointing at is still obvious. */
 #monthly-sheet-table tbody tr.drillable:hover td {
@@ -1094,6 +1100,11 @@ h4.drawer-section {
 .badge-orange {
   background: #ffedd5;
   color: #c2410c;
+}
+
+.badge-purple {
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 /* ---------- Cost import/export + missing-cost flags ---------- */
