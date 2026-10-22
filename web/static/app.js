@@ -2821,6 +2821,15 @@ async function saveLineCost(row, inputs, button) {
     console.error(err);
     button.disabled = false;
     button.textContent = "Save";
+    // 23505 is the primary key on (store_id, source_id): this line already has
+    // a cost, so the queue on screen is stale -- another tab saved it, or the
+    // workbook importer ran. Reloading is the fix, and saying so is more use
+    // than relaying "duplicate key value violates unique constraint".
+    if (err && err.code === "23505") {
+      showError("That line already has a cost recorded - the queue was out of date. Refreshing it now.");
+      await invalidate("new-orders");
+      return;
+    }
     showError(`Couldn't save the cost: ${err.message || err}`);
   }
 }
