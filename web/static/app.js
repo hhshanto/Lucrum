@@ -114,8 +114,11 @@ const monthNextBtn = document.getElementById("month-next");
 const monthlySheetSummary = document.getElementById("monthly-sheet-summary");
 const newOrdersSummary = document.getElementById("new-orders-summary");
 const newOrdersCount = document.getElementById("new-orders-count");
-const recalcBtn = document.getElementById("recalc-btn");
-const recalcHint = document.getElementById("recalc-hint");
+// Recalculate sits on both New Orders and This Month, because either tab can be
+// the one where a cost was changed. Two copies of the same control, so these are
+// node lists rather than single elements and every update touches all of them.
+const recalcBtns = document.querySelectorAll(".recalc-btn");
+const recalcHints = document.querySelectorAll(".recalc-hint");
 
 
 const purchaseForm = document.getElementById("purchase-form");
@@ -398,7 +401,7 @@ periodSelect.addEventListener("change", invalidateAll);
 
 refreshBtn.addEventListener("click", syncOrders);
 refreshFeesBtn.addEventListener("click", syncSettlement);
-recalcBtn.addEventListener("click", recalculate);
+recalcBtns.forEach((btn) => btn.addEventListener("click", recalculate));
 
 // Label the tab before it is ever opened, so the nav reads "October 2026"
 // rather than a placeholder on first paint.
@@ -3058,11 +3061,13 @@ async function saveLineCost(row, inputs, button) {
 let unpostedCosts = 0;
 
 function updateRecalcHint() {
-  if (!recalcHint) return;
-  recalcHint.hidden = unpostedCosts === 0;
-  recalcHint.textContent = unpostedCosts === 0
+  const text = unpostedCosts === 0
     ? ""
     : `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved - not in your profit figures yet`;
+  recalcHints.forEach((hint) => {
+    hint.hidden = unpostedCosts === 0;
+    hint.textContent = text;
+  });
 }
 
 // Reposting is a separate, explicit step. Saving a cost is cheap; rebuilding the
@@ -3072,7 +3077,9 @@ async function recalculate() {
   const storeId = requireStore();
   if (!storeId) return;
   clearError();
-  recalcBtn.disabled = true;
+  // Disable every copy, not just the one clicked. Leaving the other enabled
+  // would let a second rebuild start on top of the first.
+  recalcBtns.forEach((btn) => { btn.disabled = true; });
   setSyncStatus("Recalculating the ledger...", "busy");
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
@@ -3108,7 +3115,7 @@ async function recalculate() {
     setSyncStatus("", null);
     showError(`Recalculation request failed: ${err.message || err}`);
   } finally {
-    recalcBtn.disabled = false;
+    recalcBtns.forEach((btn) => { btn.disabled = false; });
   }
 }
 

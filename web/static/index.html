@@ -151,8 +151,8 @@
             <div class="card-header-row">
               <h2>Orders waiting to be costed</h2>
               <div class="recalc-group">
-                <span id="recalc-hint" class="sync-status sync-warn" hidden></span>
-                <button id="recalc-btn" class="btn-secondary admin-only" type="button"
+                <span class="recalc-hint sync-status sync-warn" hidden></span>
+                <button class="recalc-btn btn-secondary admin-only" type="button"
                         title="Rebuild the ledger so newly entered costs flow into every profit figure">
                   <span class="refresh-icon" aria-hidden="true">&#8635;</span>
                   <span class="refresh-label">Recalculate</span>
@@ -217,6 +217,14 @@
                 <label><input type="checkbox" id="toggle-photo" checked /> Photo</label>
                 <label><input type="checkbox" id="toggle-tracking" checked /> Tracking</label>
                 <label><input type="checkbox" id="toggle-customer" checked /> Customer</label>
+              </div>
+              <div class="recalc-group">
+                <span class="recalc-hint sync-status sync-warn" hidden></span>
+                <button class="recalc-btn btn-secondary admin-only" type="button"
+                        title="Rebuild the ledger so newly entered costs flow into every profit figure">
+                  <span class="refresh-icon" aria-hidden="true">&#8635;</span>
+                  <span class="refresh-label">Recalculate</span>
+                </button>
               </div>
             </div>
             <p class="note">
