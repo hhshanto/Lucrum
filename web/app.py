@@ -85,6 +85,80 @@ def _require_store_access(request: Request, store_id: str):
     return user
 
 
+def _require_store_admin(request: Request, store_id: str):
+    """Caller must be an ADMIN of this store, not merely a member.
+
+    Reposting rewrites every profit figure the store has, so it sits behind the
+    same gate as the order_line_costs rows that feed it (migration_a4:48-58).
+    """
+    user = _require_store_access(request, store_id)
+    rows = (
+        _service_client()
+        .table("store_access")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("store_id", store_id)
+        .execute()
+        .data
+    )
+    if not rows or rows[0].get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin of this store can do that.")
+    return user
+
+
+@app.post("/post")
+def post_ledger(request: Request, store_id: str = ""):
+    """Rebuild and repost this store's ledger, so newly entered costs take effect.
+
+    --rebuild is not optional. Posting is idempotent and the ledger is
+    append-only, so an entry already built from a missing cost is SKIPPED rather
+    than corrected (post_ledger.py:48-52). Without the wipe, typing a cost for a
+    line that already posted would change nothing and look like a broken save.
+    """
+    _require_store_admin(request, store_id)
+
+    # rebuild_ledger sets lucrum.allow_ledger_rewrite with set_config(..., true),
+    # which is TRANSACTION-local. post_ledger.py then writes the replacement rows
+    # over PostgREST in separate transactions, where the flag is gone and the
+    # period guard (migration_a14:94) applies again. So a rebuild against a store
+    # with a closed month would wipe the ledger and then fail to re-post that
+    # month. Refuse rather than find out afterwards.
+    closed = (
+        _service_client()
+        .table("periods")
+        .select("month")
+        .eq("store_id", store_id)
+        .eq("status", "closed")
+        .execute()
+        .data
+    )
+    if closed:
+        months = ", ".join(sorted(str(row["month"])[:7] for row in closed))
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Can't recalculate: {months} is closed. A rebuild clears the whole "
+                "ledger and cannot re-post a closed month, so this would destroy it. "
+                "Re-open the period first."
+            ),
+        )
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "post_ledger.py", "--rebuild", "--store-id", store_id],
+            cwd=SYNCER_DIR,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Recalculation took too long and was stopped.")
+
+    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    failed = proc.returncode != 0
+    return {"ok": not failed, "returncode": proc.returncode, "output": output}
+
+
 @app.post("/sync/orders")
 def sync_orders(request: Request, days: int = 30, store_id: str = ""):
     """Pull fresh Walmart orders + catalog for ONE store the caller has access to.

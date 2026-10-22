@@ -53,20 +53,29 @@
     <section id="dashboard-section" hidden>
       <div class="app-shell">
       <nav class="tabs" aria-label="Sections">
-        <span class="tab-group">Insights</span>
-        <button class="tab-btn active" data-tab="dashboard" type="button">
-          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
-          <span>Dashboard</span>
+        <button class="tab-btn" data-tab="new-orders" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          <span>New Orders</span>
+          <span id="new-orders-count" class="tab-count" hidden></span>
         </button>
-        <button class="tab-btn" data-tab="order-details" type="button">
+        <button class="tab-btn active" data-tab="order-details" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 2h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
           <span>Orders</span>
         </button>
+        <span class="tab-group">Money</span>
+        <button class="tab-btn" data-tab="month" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+          <span id="month-tab-label">Monthly</span>
+        </button>
         <button class="tab-btn" data-tab="profit" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-          <span>Profit</span>
+          <span>P&amp;L</span>
         </button>
-        <span class="tab-group">Catalog</span>
+        <button class="tab-btn" data-tab="skus" type="button">
+          <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          <span>SKU Profit</span>
+        </button>
+        <span class="tab-group">Inventory</span>
         <button class="tab-btn" data-tab="products" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.42l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42Z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>
           <span>Products</span>
@@ -75,7 +84,6 @@
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
           <span>Inventory</span>
         </button>
-        <span class="tab-group">Operations</span>
         <button class="tab-btn" data-tab="purchases" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
           <span>Purchases</span>
@@ -88,7 +96,7 @@
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
           <span>Damaged Goods</span>
         </button>
-        <span class="tab-group admin-only">Health</span>
+        <span class="tab-group admin-only">Admin</span>
         <button class="tab-btn admin-only" data-tab="sync" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
           Sync
@@ -101,8 +109,6 @@
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/></svg>
           Periods
         </button>
-
-        <span class="tab-group admin-only">Admin</span>
         <button class="tab-btn admin-only" data-tab="team" type="button">
           <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Team</span>
@@ -139,34 +145,125 @@
       <div id="error-banner" class="banner banner-error" role="alert" hidden></div>
 
       <div class="content">
-      <div class="tab-panel" id="tab-dashboard">
-        <div class="summary">
-          <div class="stat stat-products">
-            <span class="stat-label">Products</span>
-            <span class="stat-value" id="stat-products">0</span>
+      <div class="tab-panel" id="tab-new-orders" hidden>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <h2>Orders waiting to be costed</h2>
+              <button id="recalc-btn" class="btn-secondary admin-only" type="button"
+                      title="Rebuild the ledger so newly entered costs flow into every profit figure">
+                <span class="refresh-icon" aria-hidden="true">&#8635;</span>
+                <span class="refresh-label">Recalculate</span>
+              </button>
+            </div>
+            <p class="note">
+              Sales that have landed but whose supplier cost you haven't recorded yet.
+              Enter what you paid and the line leaves this queue &mdash; there's no separate
+              "done" flag, the cost <em>is</em> the signal. Covers <strong>all time</strong>,
+              not the selected period, so nothing can age out of view. Cancelled orders are
+              excluded; they never reach the ledger.
+              <br />
+              Saving stores the cost. Profit figures only move when you hit
+              <strong>Recalculate</strong>, which reposts the ledger.
+              <span id="new-orders-summary" class="summary-line"></span>
+            </p>
           </div>
-          <div class="stat stat-revenue">
-            <span class="stat-label">Revenue</span>
-            <span class="stat-value" id="stat-revenue">0</span>
-          </div>
-          <div class="stat stat-cogs">
-            <span class="stat-label">COGS</span>
-            <span class="stat-value" id="stat-cogs">0</span>
-          </div>
-          <div class="stat stat-profit">
-            <span class="stat-label">Net Profit</span>
-            <span class="stat-value" id="stat-profit">0</span>
+          <div class="table-wrap table-wide">
+            <table id="new-orders-table">
+              <thead>
+                <tr>
+                  <th>Order Date</th>
+                  <th>Waiting</th>
+                  <th>Customer Order ID</th>
+                  <th>SKU</th>
+                  <th>Product Title</th>
+                  <th>Qty</th>
+                  <th>Revenue</th>
+                  <th>Status</th>
+                  <th class="col-entry">Unit Cost *</th>
+                  <th class="col-entry">Warehouse</th>
+                  <th class="col-entry">Label (Walmart)</th>
+                  <th class="col-entry">Label (3rd party)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
           </div>
         </div>
+      </div>
 
-        <div id="cost-warning" class="banner banner-warn" role="alert" hidden></div>
+      <div class="tab-panel" id="tab-month" hidden>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-row">
+              <div class="month-nav">
+                <button id="month-prev" class="btn-secondary btn-xs" type="button"
+                        title="Previous month" aria-label="Previous month">&#8592;</button>
+                <h2 id="monthly-sheet-title">&nbsp;</h2>
+                <button id="month-next" class="btn-secondary btn-xs" type="button"
+                        title="Next month" aria-label="Next month">&#8594;</button>
+              </div>
+              <div class="col-toggles">
+                <label><input type="checkbox" id="toggle-photo" checked /> Photo</label>
+                <label><input type="checkbox" id="toggle-tracking" checked /> Tracking</label>
+                <label><input type="checkbox" id="toggle-customer" checked /> Customer</label>
+              </div>
+            </div>
+            <p class="note">
+              The monthly sheet, in the same column order as your workbook.
+              <strong>ROI</strong> is profit over everything spent (cost + fees + warehouse),
+              which is <em>not</em> the same as margin &mdash; margin divides by what you sold.
+              Fees show as negative because they reduce profit, the way every other tab in
+              this app reports them. Status comes from Walmart, so it updates itself.
+              <span id="monthly-sheet-summary" class="summary-line"></span>
+            </p>
+            <div class="status-legend">
+              <span><i style="background:#f0fdf4"></i>Delivered</span>
+              <span><i style="background:#eff6ff"></i>Shipped</span>
+              <span><i style="background:#fffbeb"></i>Acknowledged &mdash; not shipped, nothing posted</span>
+              <span><i style="background:#fef2f2"></i>Cancelled &mdash; never posts</span>
+            </div>
+          </div>
+          <div class="table-wrap table-wide">
+            <table id="monthly-sheet-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th class="col-photo">Photo</th>
+                  <th>Description</th>
+                  <th>Order #</th>
+                  <th>SKU Code</th>
+                  <th class="col-customer">Customer Name</th>
+                  <th>Qty</th>
+                  <th>Sold Price</th>
+                  <th>Shipping</th>
+                  <th>Total Selling</th>
+                  <th>Per Item Cost</th>
+                  <th>Total Cost</th>
+                  <th>Walmart Fee</th>
+                  <th>Label (Walmart)</th>
+                  <th>Label (3rd party)</th>
+                  <th>Warehouse</th>
+                  <th>Net Profit</th>
+                  <th>ROI</th>
+                  <th>Status</th>
+                  <th class="col-tracking">Tracking</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
+      <div class="tab-panel" id="tab-skus" hidden>
         <div class="card">
           <div class="card-header">
             <h2>Profit by SKU</h2>
             <p class="note">
               <strong>Net</strong> profit = revenue (product + shipping) − COGS − warehouse − Walmart fees.
-              Same numbers as the <strong>Orders</strong> and <strong>Profit</strong> tabs. Fees show $0
+              Same numbers as the <strong>Orders</strong> and <strong>P&amp;L</strong> tabs. Fees show $0
               until settlement lands or you enter them on an order.
             </p>
           </div>
@@ -471,7 +568,28 @@
         </div>
       </div>
 
-      <div class="tab-panel" id="tab-order-details" hidden>
+      <div class="tab-panel" id="tab-order-details">
+        <div class="summary">
+          <div class="stat stat-products">
+            <span class="stat-label">Products</span>
+            <span class="stat-value" id="stat-products">0</span>
+          </div>
+          <div class="stat stat-revenue">
+            <span class="stat-label">Revenue</span>
+            <span class="stat-value" id="stat-revenue">0</span>
+          </div>
+          <div class="stat stat-cogs">
+            <span class="stat-label">COGS</span>
+            <span class="stat-value" id="stat-cogs">0</span>
+          </div>
+          <div class="stat stat-profit">
+            <span class="stat-label">Net Profit</span>
+            <span class="stat-value" id="stat-profit">0</span>
+          </div>
+        </div>
+
+        <div id="cost-warning" class="banner banner-warn" role="alert" hidden></div>
+
         <div class="card">
           <div class="card-header">
             <div class="card-header-row">
@@ -495,18 +613,14 @@
                   <th>Product Title</th>
                   <th>Customer Details</th>
                   <th>Order Qty</th>
-                  <th>Unit Selling Price</th>
+                  <th>Selling Price</th>
                   <th>Extra Shipping</th>
-                  <th>Unit Purchase Price</th>
-                  <th>Total Selling Price</th>
-                  <th>Total Extra Shipping</th>
-                  <th>Total Purchase Price</th>
+                  <th>Purchase Price</th>
                   <th class="col-fees">Referral Fees</th>
                   <th class="col-fees">Label Fees</th>
                   <th>W.House Cost</th>
-                  <th>Total Cost</th>
                   <th>Net Profit</th>
-                  <th>Margin</th>
+                  <th>Confidence</th>
                   <th>Order Status</th>
                   <th class="col-fees">Refund Fees</th>
                   <th class="col-fees">Extra Walmart Service Fees</th>
@@ -538,18 +652,14 @@
                   <th>Product Title</th>
                   <th>Customer Details</th>
                   <th>Order Qty</th>
-                  <th>Unit Selling Price</th>
+                  <th>Selling Price</th>
                   <th>Extra Shipping</th>
-                  <th>Unit Purchase Price</th>
-                  <th>Total Selling Price</th>
-                  <th>Total Extra Shipping</th>
-                  <th>Total Purchase Price</th>
+                  <th>Purchase Price</th>
                   <th class="col-fees">Referral Fees</th>
                   <th class="col-fees">Label Fees</th>
                   <th>W.House Cost</th>
-                  <th>Total Cost</th>
                   <th>Net Profit</th>
-                  <th>Margin</th>
+                  <th>Confidence</th>
                   <th>Order Status</th>
                   <th class="col-fees">Refund Fees</th>
                   <th class="col-fees">Extra Walmart Service Fees</th>
@@ -904,15 +1014,35 @@
       <button id="drawer-close" class="btn-secondary btn-sm" type="button" aria-label="Close">Close</button>
     </div>
     <div class="drawer-body">
+      <div id="drawer-detail" class="drawer-detail" hidden></div>
+
+      <h4 class="drawer-section">Ledger entries</h4>
+      <p class="note drawer-note">Every figure above is the sum of these rows.</p>
       <table id="drawer-table">
         <colgroup>
           <col style="width: 18%" /><col style="width: 28%" />
           <col style="width: 20%" /><col style="width: 34%" />
         </colgroup>
-        <thead><tr><th>Date</th><th>Entry</th><th>Amount</th><th>Source</th></tr></thead>
+        <thead><tr><th>Date</th><th>Entry</th><th>Amount</th><th>Where it came from</th></tr></thead>
         <tbody></tbody>
         <tfoot><tr><th colspan="2">Net</th><th id="drawer-total"></th><th></th></tr></tfoot>
       </table>
+
+      <div id="drawer-settlement-wrap" hidden>
+        <h4 class="drawer-section">Walmart settlement rows</h4>
+        <p class="note drawer-note">
+          Exactly what Walmart reported for this order, before any mapping. These are
+          the rows the fee entries above are derived from.
+        </p>
+        <table id="drawer-settlement-table">
+          <colgroup>
+            <col style="width: 16%" /><col style="width: 26%" />
+            <col style="width: 30%" /><col style="width: 28%" />
+          </colgroup>
+          <thead><tr><th>Report</th><th>Transaction</th><th>Amount Type</th><th>Amount</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
   <div id="drawer-scrim" class="drawer-scrim" hidden></div>

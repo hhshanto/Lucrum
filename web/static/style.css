@@ -696,6 +696,306 @@ td input[type="number"] {
   width: 6rem;
 }
 
+/* ---------- New Orders costing queue ---------- */
+
+/* Entry cells sit in the middle of a read-only table, so they need to read as
+   editable at a glance rather than looking like data that happens to be boxed. */
+td.col-entry input[type="number"] {
+  width: 5.5rem;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d4d4d8);
+  border-radius: 4px;
+  padding: 0.25rem 0.4rem;
+}
+
+td.col-entry input[type="number"]:focus {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -1px;
+}
+
+/* warehouse_cost on a multi-line order: it is billed once for the whole order,
+   so entering it on every line would double-count. Amber, not red -- it is a
+   caution about where to type, not an error. */
+td.col-entry input.warn-input {
+  border-color: #d97706;
+  background: #fffbeb;
+}
+
+/* ---------- Monthly sheet ---------- */
+
+/* The sheet scrolls inside its own box rather than with the page. Without a
+   height cap the horizontal scrollbar lands at the bottom of the table, so on a
+   112-row month you had to scroll to the end of October to reach the control
+   that moves you sideways. Capping the height keeps it permanently in reach,
+   and is what lets the header and totals rows actually stick. */
+#tab-month .table-wrap {
+  max-height: calc(100vh - 19rem);
+  min-height: 18rem;
+  overflow: auto;
+}
+
+/* Make the bars obvious -- an overlay scrollbar on a table that clearly has
+   more columns than fit is a thing people do not find. */
+#tab-month .table-wrap::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+#tab-month .table-wrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 3px solid var(--surface, #fff);
+  border-radius: 6px;
+}
+
+#tab-month .table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+#tab-month .table-wrap {
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* Frozen header row. */
+#monthly-sheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+/* Totals band, mirroring row 1 of the workbook. At the top rather than in a
+   tfoot because on a long month the number you want is the one you can see
+   without scrolling to the end. `top` is set from JS to the measured header
+   height -- hardcoding it would break the moment the font or padding changed. */
+tr.totals-row td {
+  position: sticky;
+  z-index: 2;
+  background: #f1f5f9;
+  border-bottom: 2px solid #cbd5e1;
+  font-weight: 600;
+}
+
+/* ---------- Drill-down drawer: full order detail ---------- */
+
+.drawer-detail-head {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding-bottom: 0.9rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-detail-head img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f8fafc;
+  flex: none;
+}
+
+h4.drawer-section {
+  margin: 1.1rem 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+}
+
+.drawer-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.8em;
+}
+
+/* Label on the left, value on the right, dotted leader between them. Without
+   the leader the eye has to travel an empty gap and guess which value belongs
+   to which label -- the same reason printed tables of contents use them. */
+.fact-grid {
+  margin: 0 0 0.2rem;
+  font-size: 0.875rem;
+}
+
+.fact-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.14rem 0;
+}
+
+/* dt is itself a flex line: its text is one item and the ::after leader is
+   another, set to flex:1 so it absorbs whatever space is left. That makes the
+   dots stretch to exactly the right length without knowing any widths. */
+.fact-row dt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Not var(--border-strong): that is #d4d8de, which at 1px on white is invisible
+   -- the leader was rendering, just not visible. 2px dots in a mid grey read
+   clearly without competing with the values.
+   No transform either: with align-items:baseline an empty flex item aligns its
+   bottom margin edge to the text baseline, which already puts the border where
+   a leader belongs. Nudging it up pushed it through the text. */
+.fact-row dt::after {
+  content: "";
+  flex: 1;
+  min-width: 1.5rem;
+  border-bottom: 2px dotted #a8b2c1;
+}
+
+.fact-row dd {
+  margin: 0;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Lines with nothing posted yet: real orders, no money against them. Muted so
+   the eye goes to the lines that actually carry figures, but still present,
+   because they are this month's work. */
+#monthly-sheet-table tr.row-pending td {
+  color: var(--text-subtle, #94a3b8);
+  font-style: italic;
+}
+
+/* ---------- Row tint by order status ---------- */
+
+/* Set on the td, not the tr. The frozen columns carry their own background so
+   they stay opaque while the rest scrolls underneath -- a tr-level background
+   would paint behind them and leave the pinned cells white. That is also why
+   the generic `tbody tr:hover` rule does nothing on this table. */
+#monthly-sheet-table tbody tr.status-delivered td    { background: #f0fdf4; }
+#monthly-sheet-table tbody tr.status-shipped td      { background: #eff6ff; }
+#monthly-sheet-table tbody tr.status-acknowledged td { background: #fffbeb; }
+#monthly-sheet-table tbody tr.status-created td      { background: #fffbeb; }
+#monthly-sheet-table tbody tr.status-cancelled td    { background: #fef2f2; }
+
+/* Hover has to be td-level for the same reason, and must outrank the tints so
+   the row you are pointing at is still obvious. */
+#monthly-sheet-table tbody tr.drillable:hover td {
+  background: #e2e8f0;
+}
+
+/* Legend. Colour with no key is decoration, not information. */
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.status-legend span {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.status-legend i {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+}
+
+/* Frozen leftmost columns. `left` is set per cell from JS, because the columns
+   size to their content. The background must be opaque or the scrolling columns
+   show through underneath. */
+#monthly-sheet-table .frozen-col {
+  position: sticky;
+  z-index: 1;
+  background: var(--surface, #fff);
+}
+
+/* Corner cells are pinned in both axes, so they have to paint above everything
+   that is pinned in only one. */
+#monthly-sheet-table thead .frozen-col {
+  z-index: 5;
+  background: var(--surface-sunken);
+}
+
+#monthly-sheet-table tr.totals-row .frozen-col {
+  z-index: 3;
+  background: #f1f5f9;
+}
+
+/* Edge of the frozen block, so it is obvious which columns are pinned. */
+#monthly-sheet-table .frozen-col:nth-child(4) {
+  border-right: 2px solid var(--border-strong);
+}
+
+.month-nav {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.month-nav h2 {
+  min-width: 11rem;
+  margin: 0;
+  text-align: center;
+}
+
+.month-nav button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.item-photo {
+  display: block;
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #f8fafc;
+}
+
+/* Optional columns. Each checkbox toggles one class on the table. */
+#monthly-sheet-table.hide-photo .col-photo,
+#monthly-sheet-table.hide-tracking .col-tracking,
+#monthly-sheet-table.hide-customer .col-customer {
+  display: none;
+}
+
+.col-toggles {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  font-size: 0.85em;
+  color: var(--text-muted, #64748b);
+}
+
+.col-toggles label {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* Count badge on the New Orders tab. A work queue you have to click into to
+   discover is a work queue that gets forgotten. */
+.tab-count {
+  display: inline-block;
+  min-width: 1.25rem;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1.5rem;
+  text-align: center;
+}
+
 .truncate {
   cursor: help;
 }
@@ -737,6 +1037,11 @@ td input[type="number"] {
 .badge-gray {
   background: #f1f3f5;
   color: var(--text-muted);
+}
+
+.badge-red {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 /* ---------- Cost import/export + missing-cost flags ---------- */

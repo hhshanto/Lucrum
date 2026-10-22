@@ -3,7 +3,7 @@ let stores = [];
 let catalogExport = [];
 let adminStores = new Set();
 let editing = null;
-let activeTab = "dashboard";
+let activeTab = "order-details";
 const loaded = new Set();
 
 const loginSection = document.getElementById("login-section");
@@ -69,7 +69,7 @@ const EDITABLE = {
       { key: "status", label: "Status", type: "text" },
       { key: "notes", label: "Notes", type: "text" },
     ],
-    invalidates: ["purchases", "inventory", "dashboard", "order-details", "profit"],
+    invalidates: ["purchases", "inventory", "skus", "order-details", "profit"],
   },
   damaged_goods: {
     label: "damaged entry",
@@ -104,6 +104,18 @@ const feeMapTableBody = document.querySelector("#feemap-table tbody");
 const calibrationTableBody = document.querySelector("#calibration-table tbody");
 const disagreementsTableBody = document.querySelector("#disagreements-table tbody");
 const periodsTableBody = document.querySelector("#periods-table tbody");
+const newOrdersTableBody = document.querySelector("#new-orders-table tbody");
+const monthlySheetTableBody = document.querySelector("#monthly-sheet-table tbody");
+const monthlySheetTable = document.getElementById("monthly-sheet-table");
+const monthlySheetTitle = document.getElementById("monthly-sheet-title");
+const monthTabLabel = document.getElementById("month-tab-label");
+const monthPrevBtn = document.getElementById("month-prev");
+const monthNextBtn = document.getElementById("month-next");
+const monthlySheetSummary = document.getElementById("monthly-sheet-summary");
+const newOrdersSummary = document.getElementById("new-orders-summary");
+const newOrdersCount = document.getElementById("new-orders-count");
+const recalcBtn = document.getElementById("recalc-btn");
+
 
 const purchaseForm = document.getElementById("purchase-form");
 const damagedForm = document.getElementById("damaged-form");
@@ -130,13 +142,13 @@ const purchaseImportStatus = document.getElementById("purchase-import-status");
 // state in, and a render function. Adding a tab = one entry here. A tab's data
 // is fetched only when the tab is opened (lazy), and cached until invalidated.
 const modules = {
-  dashboard: {
-    // ledger_sku_monthly replaces profit_by_sku: the figures come from
-    // ledger_entries, so they cannot change after the fact, and each row
-    // carries uncosted_lines / is_complete so the UI can say what it knows.
+  // ledger_sku_monthly replaces profit_by_sku: the figures come from
+  // ledger_entries, so they cannot change after the fact, and each row
+  // carries uncosted_lines / is_complete so the UI can say what it knows.
+  skus: {
     tables: ["ledger_sku_monthly", "products"],
     skeleton: [[profitTableBody, 9]],
-    render: (d) => renderDashboard(d.ledger_sku_monthly, d.products),
+    render: (d) => renderSkuProfit(d.ledger_sku_monthly, d.products),
   },
   products: {
     tables: ["products", "product_costs"],
@@ -166,13 +178,21 @@ const modules = {
     skeleton: [[returnsTableBody, 6]],
     render: (d) => renderReturns(d.ledger_returns),
   },
+  // Orders is the landing view: watching what sold is the daily job, so the
+  // headline figures ride on top of it rather than behind a tab of their own.
   "order-details": {
     // ledger_order_details, not order_details: the legacy view still recomputes
-    // profit from current state, so the Orders tab was disagreeing with
-    // Dashboard and Profit. Same column names, so this is a drop-in swap.
-    tables: ["ledger_order_details"],
-    skeleton: [[orderDetailsTableBody, 21]],
-    render: (d) => renderOrderDetails(d.ledger_order_details),
+    // profit from current state, so the Orders tab was disagreeing with the
+    // SKU Profit and P&L views. Same column names, so this is a drop-in swap.
+    // ledger_sku_monthly/products feed the summary strip above the table; both
+    // are cached, so opening SKU Profit afterwards costs no extra round trip.
+    tables: ["ledger_order_details", "ledger_sku_monthly", "products"],
+    // 18 columns (incl. the serial #), across both the counted and pending tables.
+    skeleton: [[orderDetailsTableBody, 18], [pendingOrdersTableBody, 18]],
+    render: (d) => {
+      renderSummaryStats(d.ledger_sku_monthly, d.products);
+      renderOrderDetails(d.ledger_order_details);
+    },
   },
   profit: {
     tables: ["ledger_summary"],
@@ -208,10 +228,55 @@ const modules = {
     skeleton: [[periodsTableBody, 6]],
     render: (d) => renderPeriods(d.period_close_readiness),
   },
+  "new-orders": {
+    tables: ["new_orders"],
+    skeleton: [[newOrdersTableBody, 13]],
+    render: (d) => renderNewOrders(d.new_orders),
+  },
+  month: {
+    skeleton: [[monthlySheetTableBody, 20]],
+    // Has its own month, not the header dropdown's. The dropdown can be set to
+    // "All time", which is meaningless for a monthly sheet, and a tab labelled
+    // October that quietly showed August would be worse than no tab at all.
+    load: async () => ({ monthly_sheet: await runQuery("monthly_sheet", sheetMonthRange()) }),
+    render: (d) => renderMonthlySheet(d.monthly_sheet),
+  },
 };
 
-// order-details spans 22 columns (incl. the serial #) across both order tables.
-modules["order-details"].skeleton = [[orderDetailsTableBody, 22], [pendingOrdersTableBody, 22]];
+// Which month the sheet is showing. Initialised from the clock, so the tab
+// renames itself to "November 2026" on the 1st without anyone touching it.
+let sheetMonth = { y: new Date().getFullYear(), m: new Date().getMonth() + 1 };
+
+function monthLabel({ y, m }) {
+  return new Date(y, m - 1, 1).toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+
+// [start of month, start of next) -- half-open, same shape as periodRange, so
+// an order late on the 31st still lands inside the month rather than falling
+// through a <= bound.
+function sheetMonthRange() {
+  const { y, m } = sheetMonth;
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const pad = (n) => String(n).padStart(2, "0");
+  return { from: `${y}-${pad(m)}-01`, to: `${ny}-${pad(nm)}-01` };
+}
+
+function shiftSheetMonth(delta) {
+  let { y, m } = sheetMonth;
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  sheetMonth = { y, m };
+  return invalidate("month");
+}
+
+// Nothing is dated in the future, so forward past the current month would only
+// ever show an empty table.
+function atCurrentMonth() {
+  const now = new Date();
+  return sheetMonth.y === now.getFullYear() && sheetMonth.m === now.getMonth() + 1;
+}
 
 async function init() {
   const config = await fetch("/config").then((r) => r.json());
@@ -315,6 +380,31 @@ periodSelect.addEventListener("change", invalidateAll);
 
 refreshBtn.addEventListener("click", syncOrders);
 refreshFeesBtn.addEventListener("click", syncSettlement);
+recalcBtn.addEventListener("click", recalculate);
+
+// Label the tab before it is ever opened, so the nav reads "October 2026"
+// rather than a placeholder on first paint.
+if (monthTabLabel) monthTabLabel.textContent = monthLabel(sheetMonth);
+
+if (monthPrevBtn) monthPrevBtn.addEventListener("click", () => shiftSheetMonth(-1));
+if (monthNextBtn) monthNextBtn.addEventListener("click", () => shiftSheetMonth(1));
+
+// Column toggles. Twenty columns is a lot; rather than guess which ones matter,
+// the heavy optional ones hide behind a checkbox each. Pure CSS, no reload.
+for (const [id, cls] of [
+  ["toggle-photo", "hide-photo"],
+  ["toggle-tracking", "hide-tracking"],
+  ["toggle-customer", "hide-customer"],
+]) {
+  const box = document.getElementById(id);
+  if (!box) continue;
+  box.addEventListener("change", () => {
+    monthlySheetTable.classList.toggle(cls, !box.checked);
+    // Hiding a column shifts everything left of the freeze line, so the sticky
+    // offsets have to be measured again or the frozen cells detach.
+    freezeMonthlyColumns();
+  });
+}
 showFeesToggle.addEventListener("change", () => {
   const hide = !showFeesToggle.checked;
   orderDetailsTable.classList.toggle("hide-fees", hide);
@@ -556,7 +646,7 @@ async function saveManualFees(row, referral, label, errEl) {
     return;
   }
   closeOrderModal();
-  await invalidate("order-details", "profit");
+  await invalidate("skus", "order-details", "profit");
 }
 
 for (const btn of tabButtons) {
@@ -602,6 +692,12 @@ const DATE_COLUMN = {
   unmapped_amount_types: null,
   fee_category_map: null,
   fee_calibration: null,
+  // A work queue, deliberately unfiltered. Scoping it to the selected month
+  // would hide exactly the lines that most need attention -- the stragglers
+  // that shipped without ever being costed.
+  new_orders: null,
+  // Filtered, but by the tab's own fixed window rather than the dropdown.
+  monthly_sheet: "order_date",
   fee_label_disagreements: null,
   period_close_readiness: null,
 };
@@ -673,15 +769,66 @@ async function buildPeriodOptions() {
 }
 
 // ---- Loading / invalidation ---------------------------------------------
-async function runQuery(table) {
-  let q = supabaseClient.from(table).select("*");
-  if (storeSelect.value) q = q.eq("store_id", storeSelect.value);
-  const range = periodRange();
-  const dateColumn = DATE_COLUMN[table];
-  if (range && dateColumn) q = q.gte(dateColumn, range.from).lt(dateColumn, range.to);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data;
+// PostgREST caps every select at 1000 rows and reports nothing -- you just get a
+// short array. Verified against this project's server: an explicit .range(0, 9999)
+// still comes back with exactly 1000, so the cap cannot be widened from the client.
+//
+// ledger_order_details was at 549 rows growing ~167/month, so around Jan 2027 the
+// Orders table would have begun rendering 1000 of N while its own summary line
+// understated net profit -- and the stat strip above it, fed by an 88-row
+// pre-aggregated view, would have stayed correct. Two disagreeing totals on one
+// screen, no error anywhere. Exactly the failure this app exists to prevent.
+const PAGE_SIZE = 500;
+const MAX_ROWS = 50000;
+
+// OFFSET paging needs a TOTAL order. Without one Postgres may return rows in a
+// different sequence for each page, which silently skips or duplicates rows
+// across the boundary. (source_id, sku) is unique on ledger_order_details;
+// source_id alone is NOT -- 549 rows carry only 500 distinct source_ids.
+// A relation absent from this map is asserted to fit in one page, and runQuery
+// throws rather than page it blind.
+const PAGE_ORDER = {
+  ledger_order_details: ["source_id", "sku"],
+  // One row per order line, so source_id alone is unique here. Small today
+  // (10 rows), but it grows whenever costing falls behind, which is precisely
+  // when you cannot afford the silent 1000-row truncation.
+  new_orders: ["source_id"],
+  monthly_sheet: ["source_id"],
+};
+
+async function runQuery(table, rangeOverride) {
+  const order = PAGE_ORDER[table];
+
+  const build = () => {
+    let q = supabaseClient.from(table).select("*");
+    if (storeSelect.value) q = q.eq("store_id", storeSelect.value);
+    // rangeOverride lets a tab pin itself to a window of its own instead of
+    // following the header's period dropdown. "This Month" means this month
+    // whatever the dropdown says; without the override the tab would silently
+    // relabel itself the moment someone looked at an older month elsewhere.
+    const range = rangeOverride === undefined ? periodRange() : rangeOverride;
+    const dateColumn = DATE_COLUMN[table];
+    if (range && dateColumn) q = q.gte(dateColumn, range.from).lt(dateColumn, range.to);
+    for (const column of order || []) q = q.order(column);
+    return q;
+  };
+
+  const out = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const { data, error } = await build().range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    // Only a non-empty second page proves another page exists, so a relation
+    // holding exactly PAGE_SIZE rows does not trip this.
+    if (offset > 0 && batch.length && !order) {
+      throw new Error(
+        `${table} needs more than one page but has no stable sort key in PAGE_ORDER, `
+        + "so paging could silently skip rows. Add a uniquely-identifying column list for it.");
+    }
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) return out;
+  }
+  throw new Error(`${table} returned more than ${MAX_ROWS} rows; refusing to page further.`);
 }
 
 async function loadTab(id, force = false) {
@@ -833,7 +980,7 @@ async function syncSettlement() {
     } else {
       setSyncStatus("Fees up to date", "ok");
     }
-    await invalidate("order-details", "profit");
+    await invalidate("skus", "order-details", "profit");
   } catch (err) {
     console.error(err);
     setSyncStatus("", null);
@@ -969,7 +1116,7 @@ async function importCosts(file) {
       }
     }
     setImportStatus(`Imported ${valid.length} cost${valid.length === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} row(s)` : ""}`, "ok");
-    await invalidate("dashboard", "products", "order-details", "profit");
+    await invalidate("skus", "products", "order-details", "profit");
   } catch (err) {
     console.error(err);
     setImportStatus("", null);
@@ -1100,7 +1247,7 @@ async function importPurchases(file) {
       return;
     }
     setPurchaseImportStatus(`Imported ${valid.length} purchase${valid.length === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} row(s)` : ""}`, "ok");
-    await invalidate("purchases", "inventory", "dashboard", "order-details", "profit");
+    await invalidate("purchases", "inventory", "skus", "order-details", "profit");
   } catch (err) {
     console.error(err);
     setPurchaseImportStatus("", null);
@@ -1232,16 +1379,20 @@ function rollUpBySku(rows) {
   return [...bySku.values()];
 }
 
-function renderDashboard(profitRows, productRows) {
-  // The ledger keys everything on sku and deliberately does not carry
-  // product_name -- a name is catalog state, not a financial fact, and copying
-  // it into every entry would let the two drift. Join it on for display.
+// The ledger keys everything on sku and deliberately does not carry
+// product_name -- a name is catalog state, not a financial fact, and copying
+// it into every entry would let the two drift. Join it on for display.
+function buildSkuProfit(profitRows, productRows) {
   const nameMap = buildNameMap(productRows);
   const named = profitRows.map((row) => ({
     ...row,
     product_name: row.product_name ?? nameMap.get(`${row.store_id}|${row.sku}`) ?? "",
   }));
-  const profit = rollUpBySku(named).sort((a, b) => b.net_profit - a.net_profit);
+  return rollUpBySku(named).sort((a, b) => b.net_profit - a.net_profit);
+}
+
+function renderSkuProfit(profitRows, productRows) {
+  const profit = buildSkuProfit(profitRows, productRows);
 
   profitTableBody.innerHTML = "";
   for (const row of profit) {
@@ -1260,6 +1411,12 @@ function renderDashboard(profitRows, productRows) {
     profitTableBody.appendChild(tr);
   }
   if (!profit.length) renderEmpty(profitTableBody, 9, "No sales yet - click Refresh orders to pull from Walmart.");
+}
+
+// The summary strip above the Orders table: the headline figures, plus the one
+// banner that says why they may be a lower bound rather than a fact.
+function renderSummaryStats(profitRows, productRows) {
+  const profit = buildSkuProfit(profitRows, productRows);
 
   // Three cost states, two of which make a total a lower bound -- but they need
   // different action, so they get different sentences. "Unknown" wants a
@@ -1288,7 +1445,7 @@ function renderDashboard(profitRows, productRows) {
         + `${fmtMoney(revenueOf(estimated))} of revenue). These are guesses, not your `
         + `real buying prices - logging actual purchases replaces them automatically.`);
     }
-    parts.push("Totals below are a lower bound and margins are hidden until costs are real.");
+    parts.push("Totals are a lower bound and margins are hidden until costs are real.");
 
     costWarning.textContent = parts.join(" ");
     costWarning.hidden = false;
@@ -1410,12 +1567,12 @@ function renderOrderDetails(orderDetailRows) {
   orderDetailsTableBody.innerHTML = "";
   counted.forEach((row, i) =>
     orderDetailsTableBody.appendChild(drillable(renderOrderDetailRow(row, i + 1), row)));
-  if (!counted.length) renderEmpty(orderDetailsTableBody, 22, "No shipped or delivered orders yet.");
+  if (!counted.length) renderEmpty(orderDetailsTableBody, 18, "No shipped or delivered orders yet.");
 
   pendingOrdersTableBody.innerHTML = "";
   pending.forEach((row, i) =>
     pendingOrdersTableBody.appendChild(drillable(renderOrderDetailRow(row, i + 1), row)));
-  if (!pending.length) renderEmpty(pendingOrdersTableBody, 22, "Nothing pending - every order is shipped or delivered.");
+  if (!pending.length) renderEmpty(pendingOrdersTableBody, 18, "Nothing pending - every order is shipped or delivered.");
 
   const sum = (list) => list.reduce((s, r) => s + Number(r.net_profit || 0), 0);
   countedSummary.textContent = counted.length
@@ -1768,6 +1925,9 @@ const drawerTitle = document.getElementById("drawer-title");
 const drawerSubtitle = document.getElementById("drawer-subtitle");
 const drawerTableBody = document.querySelector("#drawer-table tbody");
 const drawerTotal = document.getElementById("drawer-total");
+const drawerDetail = document.getElementById("drawer-detail");
+const drawerSettlementWrap = document.getElementById("drawer-settlement-wrap");
+const drawerSettlementBody = document.querySelector("#drawer-settlement-table tbody");
 
 const ENTRY_LABEL = {
   revenue_product: "Product revenue",
@@ -1785,6 +1945,31 @@ const ENTRY_LABEL = {
   correction: "Prior-period correction",
 };
 
+// source_kind says WHERE a figure came from, which is the difference between a
+// number you can argue with Walmart about and one you typed yourself. The raw
+// values are internal ("order_line"), so they get read as English here.
+const SOURCE_LABEL = {
+  order_line: "The sale",
+  settlement: "Walmart settlement",
+  manual: "Manual Workbook",
+  purchase: "Logged purchase",
+  adjustment: "Stock adjustment",
+  correction: "Correction",
+};
+
+const SOURCE_HELP = {
+  order_line: "Posted against this order line when Walmart marked it shipped. "
+    + "The revenue is Walmart's figure; the cost and warehouse charge are yours.",
+  settlement: "What Walmart actually billed, taken from the settlement report. "
+    + "This is the authoritative figure - it replaces any estimate.",
+  manual: "Taken from the manual workbook rather than from Walmart. For referral "
+    + "and label fees that makes it an estimate until settlement lands. Third-party "
+    + "labels never appear in settlement at all, so there it is the only record.",
+  purchase: "From a purchase you logged.",
+  adjustment: "From a stock adjustment you entered.",
+  correction: "A correction posted into an open period on behalf of an earlier month.",
+};
+
 function closeDrawer() {
   entryDrawer.hidden = true;
   drawerScrim.hidden = true;
@@ -1796,11 +1981,165 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !entryDrawer.hidden) closeDrawer();
 });
 
-async function openEntryDrawer({ title, subtitle, sourceId, customerOrderId, sku }) {
+// Build the "everything about this line" block that sits above the ledger
+// entries. Only the monthly sheet passes `detail`; the other callers get the
+// entries table alone, exactly as before.
+function renderDrawerDetail(row) {
+  drawerDetail.innerHTML = "";
+  if (!row) {
+    drawerDetail.hidden = true;
+    return;
+  }
+  drawerDetail.hidden = false;
+
+  const posted = row.counts_in_profit;
+
+  const head = document.createElement("div");
+  head.className = "drawer-detail-head";
+  if (row.image_url) {
+    const img = document.createElement("img");
+    img.src = row.image_url;
+    img.alt = "";
+    img.loading = "lazy";
+    head.appendChild(img);
+  }
+  const headText = document.createElement("div");
+  const name = document.createElement("strong");
+  name.textContent = row.product_name || row.sku || "";
+  const ident = document.createElement("div");
+  ident.className = "note";
+  ident.textContent = `${row.sku || ""} - order ${row.customer_order_id || ""}`;
+  headText.append(name, ident);
+  head.appendChild(headText);
+  drawerDetail.appendChild(head);
+
+  const grid = (heading, pairs) => {
+    const visible = pairs.filter(([, v]) => v !== null && v !== undefined && v !== "");
+    if (!visible.length) return;
+    const h = document.createElement("h4");
+    h.className = "drawer-section";
+    h.textContent = heading;
+    drawerDetail.appendChild(h);
+    const dl = document.createElement("dl");
+    dl.className = "fact-grid";
+    for (const [label, value, cls] of visible) {
+      // dt and dd are wrapped per pair so each can be its own flex line with a
+      // dotted leader between them. A two-column grid left the label and its
+      // value too far apart to associate by eye.
+      const line = document.createElement("div");
+      line.className = "fact-row";
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      if (value instanceof Node) dd.appendChild(value);
+      else dd.textContent = value;
+      if (cls) dd.className = cls;
+      line.append(dt, dd);
+      dl.appendChild(line);
+    }
+    drawerDetail.appendChild(dl);
+  };
+
+  let tracking = "";
+  if (row.tracking_number) {
+    if (row.tracking_url) {
+      const a = document.createElement("a");
+      a.href = row.tracking_url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = row.tracking_number;
+      tracking = a;
+    } else {
+      tracking = row.tracking_number;
+    }
+  }
+
+  const where = [row.customer_city, row.customer_state].filter(Boolean).join(", ");
+  grid("Order", [
+    ["Date", fmtDate(row.order_date)],
+    ["Status", row.order_status],
+    ["Quantity", fmtNum(row.order_qty)],
+    ["Customer", row.customer_name],
+    ["Ships to", where],
+    ["Tracking", tracking],
+    // The key settlement and the ledger both join on. Visible here so a
+    // disagreement can be traced without opening a database session.
+    ["Purchase order", row.purchase_order_id
+      ? `${row.purchase_order_id}:${row.line_number}` : ""],
+  ]);
+
+  // An unposted line has no money at all, so showing a money block of zeros
+  // would be the same lie the table avoids with its em dashes.
+  if (posted) {
+    const m = (v) => fmtMoney(v);
+    grid("Money", [
+      ["Sold price (per unit)", m(row.unit_selling_price)],
+      ["Shipping (per unit)", m(row.extra_shipping)],
+      ["Total selling", m(row.total_sold)],
+      ["Cost (per item)", m(row.unit_purchase_price)],
+      ["Total cost", m(row.total_purchase_price)],
+      ["Walmart fee", m(row.walmart_fees), signClass(row.walmart_fees)],
+      ["Label (Walmart)", m(row.label_walmart), signClass(row.label_walmart)],
+      ["Label (3rd party)", m(row.label_third_party), signClass(row.label_third_party)],
+      ["Warehouse", m(row.warehouse_cost)],
+      ["Refund fees", Number(row.refund_fees) ? m(row.refund_fees) : "", signClass(row.refund_fees)],
+      ["Other Walmart fees", Number(row.extra_service_fees) ? m(row.extra_service_fees) : "",
+        signClass(row.extra_service_fees)],
+      ["Returns", Number(row.returns) ? m(row.returns) : "", signClass(row.returns)],
+      ["Net profit", m(row.net_profit), signClass(row.net_profit)],
+      ["ROI", row.roi_pct == null ? "" : `${fmtNum(row.roi_pct)}%`, signClass(row.roi_pct)],
+      ["Margin", row.margin_pct == null ? "" : `${fmtNum(row.margin_pct)}%`, signClass(row.margin_pct)],
+    ]);
+  }
+
+  // How much of the above to believe. Spelling this out is the whole reason the
+  // app exists rather than the spreadsheet.
+  const feeSource = {
+    settlement: "Settled - these are Walmart's actual charges",
+    "workbook (estimate)": "Estimated from the manual workbook, not yet settled",
+    none: "No fees known yet - not in a settlement file",
+  }[row.fee_source] || row.fee_source;
+
+  grid("Confidence", [
+    ["Posted to ledger", posted ? "yes" : "no - nothing has posted for this line"],
+    ["Fees", feeSource],
+    ["Cost basis", row.is_uncertain ? (row.uncertain_reason || "uncertain") : "known"],
+  ]);
+}
+
+async function loadDrawerSettlement(customerOrderId) {
+  drawerSettlementBody.innerHTML = "";
+  drawerSettlementWrap.hidden = true;
+  if (!customerOrderId) return;
+  try {
+    let q = supabaseClient.from("settlement_lines").select("*")
+      .eq("customer_order_id", customerOrderId);
+    if (storeSelect.value) q = q.eq("store_id", storeSelect.value);
+    const { data, error } = await q.order("report_date").limit(200);
+    if (error) throw error;
+    if (!data || !data.length) return;
+
+    for (const line of data) {
+      drawerSettlementBody.appendChild(renderRow([
+        { text: String(line.report_date || "").slice(0, 10) },
+        { text: line.transaction_type || "" },
+        { text: line.amount_type || "" },
+        { money: line.amount, cls: signClass(line.amount) },
+      ]));
+    }
+    drawerSettlementWrap.hidden = false;
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function openEntryDrawer({ title, subtitle, sourceId, customerOrderId, sku, detail }) {
   drawerTitle.textContent = title;
   drawerSubtitle.textContent = subtitle || "";
   drawerTableBody.innerHTML = "";
   drawerTotal.textContent = "";
+  renderDrawerDetail(detail);
+  loadDrawerSettlement(detail ? customerOrderId : null);
   entryDrawer.hidden = false;
   drawerScrim.hidden = false;
 
@@ -1829,8 +2168,14 @@ async function openEntryDrawer({ title, subtitle, sourceId, customerOrderId, sku
         { text: entry.entry_date },
         { text: ENTRY_LABEL[entry.entry_type] || entry.entry_type },
         { money: entry.amount, cls: signClass(entry.amount) },
-        { text: entry.source_kind + (estimated ? " (estimate)" : "") },
+        {
+          text: (SOURCE_LABEL[entry.source_kind] || entry.source_kind)
+            + (estimated ? " (estimate)" : ""),
+        },
       ]);
+      // On the cell rather than the row, so it explains the thing being hovered
+      // instead of competing with the row's own note.
+      tr.children[3].title = SOURCE_HELP[entry.source_kind] || "";
       if (estimated) tr.classList.add("entry-estimated");
       // The note carries the calibration ratio and the cost basis, which is
       // where an unexpected figure usually explains itself.
@@ -1999,6 +2344,458 @@ function renderPeriods(rows) {
   if (!sorted.length) renderEmpty(periodsTableBody, 6, "No ledger entries yet.");
 }
 
+// The monthly sheet. Column order follows Swiftzar Llc.xlsx left to right so
+// that reading this and reading the workbook feel the same.
+//
+// Totals go at the TOP, matching row 1 of the sheet (the merged I1:K1 band),
+// rather than in a tfoot. On a long month the number you actually want is the
+// one you can see without scrolling to the end.
+function renderMonthlySheet(rows) {
+  // Newest first: the orders you are working on are this week's, not the 1st's.
+  const list = [...(rows || [])].sort((a, b) =>
+    (b.order_date ?? "").localeCompare(a.order_date ?? ""));
+
+  const label = monthLabel(sheetMonth);
+  monthlySheetTitle.textContent = label;
+  // The tab itself carries the month, so you can see which one you are on
+  // without opening it.
+  if (monthTabLabel) monthTabLabel.textContent = label;
+  if (monthNextBtn) monthNextBtn.disabled = atCurrentMonth();
+
+  monthlySheetTableBody.innerHTML = "";
+  if (!list.length) {
+    renderEmpty(monthlySheetTableBody, 20, "No orders this month yet.");
+    monthlySheetSummary.textContent = "";
+    return;
+  }
+
+  const sum = (key) => list.reduce((s, r) => s + Number(r[key] || 0), 0);
+  const totals = {
+    qty: sum("order_qty"),
+    selling: sum("total_sold"),
+    cost: sum("total_purchase_price"),
+    walmart: sum("walmart_fees"),
+    labelWm: sum("label_walmart"),
+    label3p: sum("label_third_party"),
+    warehouse: sum("warehouse_cost"),
+    net: sum("net_profit"),
+    spend: sum("total_cost"),
+  };
+
+  monthlySheetTableBody.appendChild(totalsRow(totals, list.length));
+  for (const row of list) monthlySheetTableBody.appendChild(monthlySheetRow(row));
+  freezeMonthlyColumns();
+
+  // Two different kinds of "not final", and they must not be conflated.
+  // Pending lines contribute nothing to the totals at all; estimated-fee lines
+  // contribute figures that settlement will later revise.
+  const pending = list.filter((r) => !r.counts_in_profit).length;
+  const estimated = list.filter((r) => r.counts_in_profit && r.fee_source !== "settlement").length;
+  const roi = totals.spend > 0 ? (100 * totals.net) / totals.spend : null;
+  monthlySheetSummary.textContent =
+    `${list.length - pending} posted line(s) - ${fmtMoney(totals.selling)} sold, `
+    + `${fmtMoney(totals.net)} net`
+    + (roi === null ? "" : `, ${fmtNum(roi)}% ROI`)
+    + (pending ? ` - ${pending} line(s) not shipped or cancelled, excluded from the totals` : "")
+    + (estimated ? ` - ${estimated} still on estimated fees` : "");
+}
+
+// Freeze panes, the way the spreadsheet does it: the header row and the totals
+// band stay on top, Date / Photo / Description / Order # stay on the left, and
+// everything else scrolls under them.
+//
+// All offsets are MEASURED, never hardcoded. The table is table-layout:auto so
+// columns size to their content, Photo can be switched off entirely, and the
+// header's height depends on the font. Any fixed pixel value would be wrong the
+// first time a product title got longer.
+//
+// Cumulative header widths are used rather than each cell's offsetLeft, because
+// offsetLeft resolves against an offsetParent that depends on which ancestors
+// happen to be positioned, whereas sticky's `left` is always relative to the
+// scroll box.
+const FROZEN_COLUMNS = 4;
+
+function freezeMonthlyColumns() {
+  if (!monthlySheetTable || !monthlySheetTable.tHead) return;
+  const head = monthlySheetTable.tHead.rows[0];
+  if (!head) return;
+
+  const offsets = [];
+  let acc = 0;
+  for (let i = 0; i < FROZEN_COLUMNS; i++) {
+    offsets.push(acc);
+    const th = head.children[i];
+    // A hidden column measures 0, so toggling Photo off just closes the gap.
+    acc += th ? th.getBoundingClientRect().width : 0;
+  }
+
+  for (const row of monthlySheetTable.querySelectorAll("tr")) {
+    for (let i = 0; i < FROZEN_COLUMNS; i++) {
+      const cell = row.children[i];
+      if (!cell) continue;
+      cell.classList.add("frozen-col");
+      cell.style.left = `${offsets[i]}px`;
+    }
+  }
+
+  // The totals band sits directly under the header, so its sticky offset is the
+  // header's height. Measured for the same reason as the widths.
+  const headHeight = monthlySheetTable.tHead.getBoundingClientRect().height;
+  const totals = monthlySheetTable.querySelector("tr.totals-row");
+  if (totals) {
+    for (const cell of totals.children) cell.style.top = `${headHeight}px`;
+  }
+}
+
+function totalsRow(t, lineCount) {
+  const tr = renderRow([
+    { text: `${lineCount} line(s)` },
+    { text: "", cls: "col-photo" },
+    { text: "" },
+    { text: "" },
+    { text: "" },
+    { text: "", cls: "col-customer" },
+    { num: t.qty },
+    { text: "" },
+    { text: "" },
+    { money: t.selling },
+    { text: "" },
+    { money: t.cost },
+    { money: t.walmart },
+    { money: t.labelWm },
+    { money: t.label3p },
+    { money: t.warehouse },
+    { money: t.net, cls: signClass(t.net) },
+    { text: t.spend > 0 ? `${fmtNum((100 * t.net) / t.spend)}%` : "" },
+    { text: "" },
+    { text: "", cls: "col-tracking" },
+  ]);
+  tr.classList.add("totals-row");
+  return tr;
+}
+
+// order_lines.status is free text straight from Walmart with no check
+// constraint behind it, so match loosely rather than on exact equality. Both
+// spellings of cancelled appear in the wild.
+function monthStatusClass(status) {
+  const s = String(status || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s.includes("cancel")) return "status-cancelled";
+  if (s.startsWith("deliver")) return "status-delivered";
+  if (s.startsWith("ship")) return "status-shipped";
+  if (s.startsWith("acknowledg")) return "status-acknowledged";
+  if (s.startsWith("creat")) return "status-created";
+  return "";
+}
+
+// total_sold, not total_selling_price, for column K: the workbook's "Total
+// Selling Price" is product revenue PLUS shipping. A27 added it.
+//
+// Nothing posts to the ledger until a line ships, so an Acknowledged or
+// Cancelled line has no money against it at all. Rendering those as $0.00 would
+// claim the order earned nothing, when the truth is it has not earned yet --
+// and being newest they sort to the very top, so it is the first thing read.
+// They get an em dash instead, which is the same honesty as the "at least"
+// notation used on the summary stats.
+function monthlySheetRow(row) {
+  const posted = row.counts_in_profit;
+  const money = (v, cls) => (posted ? { money: v, cls } : { text: "\u2014", cls });
+  const photo = { text: "", cls: "col-photo" };
+
+  const tr = renderRow([
+    { date: row.order_date },
+    photo,
+    { truncate: row.product_name || "" },
+    row.customer_order_id,
+    row.sku,
+    { truncate: row.customer_name || "", cls: "col-customer" },
+    { num: row.order_qty },
+    money(row.unit_selling_price),
+    money(row.extra_shipping),
+    money(row.total_sold),
+    money(row.unit_purchase_price),
+    money(row.total_purchase_price),
+    money(row.walmart_fees),
+    money(row.label_walmart),
+    money(row.label_third_party),
+    money(row.warehouse_cost),
+    money(row.net_profit, signClass(row.net_profit)),
+    {
+      text: !posted || row.roi_pct === null || row.roi_pct === undefined
+        ? (posted ? "" : "\u2014")
+        : `${fmtNum(row.roi_pct)}%`,
+      cls: posted ? signClass(row.roi_pct) : "",
+    },
+    row.order_status,
+    { text: "", cls: "col-tracking" },
+  ]);
+
+  const statusCls = monthStatusClass(row.order_status);
+  if (statusCls) tr.classList.add(statusCls);
+
+  if (!posted) {
+    tr.classList.add("row-pending");
+    tr.title = (row.order_status || "").toLowerCase().includes("cancel")
+      ? "Cancelled, so it never posts to the ledger."
+      : "Not shipped yet, so no revenue or cost has posted. It fills in once Walmart marks it shipped.";
+  }
+
+  // Click the line for everything behind it. Twenty columns still cannot carry
+  // the address, the settlement rows or the cost basis, and a row that opens is
+  // better than a row that needs three more columns.
+  tr.classList.add("drillable");
+  tr.addEventListener("click", (e) => {
+    // Let the tracking link do its own job.
+    if (e.target.closest("a")) return;
+    openEntryDrawer({
+      title: `${row.sku} - order ${row.customer_order_id}`,
+      subtitle: `${row.product_name || ""}`.trim(),
+      sourceId: row.source_id,
+      customerOrderId: row.customer_order_id,
+      sku: row.sku,
+      detail: row,
+    });
+  });
+
+  // Image and tracking are built by hand: one is an <img>, the other a link to
+  // the carrier, and neither fits the plain-value cell() contract.
+  if (row.image_url) {
+    const img = document.createElement("img");
+    img.src = row.image_url;
+    img.alt = "";
+    img.loading = "lazy";
+    img.className = "item-photo";
+    tr.children[1].appendChild(img);
+  }
+  if (row.tracking_number) {
+    const cell = tr.children[19];
+    if (row.tracking_url) {
+      const a = document.createElement("a");
+      a.href = row.tracking_url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = row.tracking_number;
+      a.title = row.tracking_number;
+      cell.appendChild(a);
+    } else {
+      cell.textContent = row.tracking_number;
+    }
+    cell.classList.add("truncate");
+  }
+
+  return tr;
+}
+
+// The costing queue. Each row is an inline form: the only action is "tell me
+// what you paid", so a modal per line would be four extra clicks on a job that
+// is meant to be done in a single pass down the table.
+//
+// Oldest first. This is a work queue, not a report -- the line that has been
+// waiting longest is the one at risk, and burying it under today's orders is how
+// the two uncosted Delivered lines went unnoticed for months.
+function renderNewOrders(rows) {
+  const list = [...(rows || [])].sort((a, b) =>
+    (a.order_date ?? "").localeCompare(b.order_date ?? ""));
+
+  newOrdersTableBody.innerHTML = "";
+  for (const row of list) newOrdersTableBody.appendChild(newOrderRow(row));
+
+  if (!list.length) {
+    renderEmpty(newOrdersTableBody, 13,
+      "Nothing waiting - every live order has a recorded cost.");
+  }
+
+  // The tab badge is the whole point of the feature: a queue you have to go
+  // looking for is a queue that gets forgotten.
+  newOrdersCount.textContent = list.length;
+  newOrdersCount.hidden = !list.length;
+
+  const revenue = list.reduce((s, r) => s + Number(r.total_revenue || 0), 0);
+  const stale = list.filter((r) => Number(r.days_waiting) > 14);
+  newOrdersSummary.textContent = list.length
+    ? `${list.length} line(s) uncosted - ${fmtMoney(revenue)} of revenue with no cost basis`
+      + (stale.length ? `, ${stale.length} waiting over 14 days` : "")
+    : "";
+}
+
+function newOrderRow(row) {
+  // order_line_costs is admin-only at the RLS level (migration_a4:48-58), so a
+  // member gets the queue read-only. Showing them inputs that always fail to
+  // save would be worse than showing none. Same check cell() uses for Edit.
+  const isAdmin = adminStores.has(row.store_id);
+
+  const tr = renderRow([
+    { date: row.order_date },
+    {
+      // Over a fortnight on Acknowledged is usually not a backlog at all but a
+      // status the syncer never came back for (EDGE_CASES.md O1). Flagging it
+      // here stops a sync defect being quietly mistaken for work to do.
+      text: `${row.days_waiting}d`,
+      cls: Number(row.days_waiting) > 14 ? "neg" : "",
+    },
+    row.customer_order_id,
+    row.sku,
+    { truncate: row.product_name || "" },
+    { num: row.quantity },
+    { money: row.total_revenue },
+    row.status,
+  ]);
+
+  if (!isAdmin) {
+    for (let i = 0; i < 5; i++) {
+      const td = document.createElement("td");
+      td.className = "col-entry";
+      tr.appendChild(td);
+    }
+    return tr;
+  }
+
+  const inputs = {};
+  const addInput = (key, { required = false } = {}) => {
+    const td = document.createElement("td");
+    td.className = "col-entry";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "0.01";
+    input.min = "0";
+    input.placeholder = required ? "required" : "";
+    if (required) input.required = true;
+    inputs[key] = input;
+    td.appendChild(input);
+    tr.appendChild(td);
+  };
+
+  // unit_cost is PER UNIT -- the column is named that way and posting.py
+  // multiplies by quantity. On a multi-unit line, typing the order total here
+  // would silently multiply the cost.
+  addInput("unit_cost", { required: true });
+  inputs.unit_cost.title = row.quantity > 1
+    ? `Cost of ONE unit. This line is ${row.quantity} units, so the total will be ${row.quantity} x this.`
+    : "Cost of one unit.";
+
+  addInput("warehouse_cost");
+  // warehouse_cost is charged once per ORDER, not per unit or per line.
+  inputs.warehouse_cost.title = Number(row.lines_in_order) > 1
+    ? `Charged once per order. This order has ${row.lines_in_order} lines - enter it on ONE of them only, or it will be counted twice.`
+    : "Handling charge for this order.";
+  if (Number(row.lines_in_order) > 1) inputs.warehouse_cost.classList.add("warn-input");
+
+  addInput("label_walmart");
+  addInput("label_third_party");
+
+  const actionCell = document.createElement("td");
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "btn-secondary btn-xs";
+  save.textContent = "Save";
+  save.addEventListener("click", () => saveLineCost(row, inputs, save));
+  actionCell.appendChild(save);
+  tr.appendChild(actionCell);
+
+  return tr;
+}
+
+async function saveLineCost(row, inputs, button) {
+  const num = (input) => {
+    const raw = input.value.trim();
+    return raw === "" ? null : Number(raw);
+  };
+
+  const unitCost = num(inputs.unit_cost);
+  // Mirrors the table's own `check (unit_cost > 0)`. Catching it here turns a
+  // raw Postgres constraint error into something readable.
+  if (unitCost === null || !Number.isFinite(unitCost) || unitCost <= 0) {
+    showError("Enter a unit cost greater than zero before saving.");
+    inputs.unit_cost.focus();
+    return;
+  }
+  for (const [key, input] of Object.entries(inputs)) {
+    const value = num(input);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) {
+      showError(`${key.replace(/_/g, " ")} must be a number of zero or more.`);
+      input.focus();
+      return;
+    }
+  }
+
+  clearError();
+  button.disabled = true;
+  button.textContent = "Saving...";
+  try {
+    // basis 'exact' is the truth here: this is the cost of the actual item
+    // bought for this actual sale, which is why it outranks the moving average
+    // (migration_a4 lines 12-16). 'sku_single'/'sku_imputed' mean inferred.
+    const { error } = await supabaseClient.from("order_line_costs").insert({
+      store_id: storeSelect.value,
+      source_id: row.source_id,
+      customer_order_id: row.customer_order_id,
+      sku: row.sku,
+      unit_cost: unitCost,
+      basis: "exact",
+      source: "manual entry",
+      warehouse_cost: num(inputs.warehouse_cost),
+      label_walmart: num(inputs.label_walmart),
+      label_third_party: num(inputs.label_third_party),
+    });
+    if (error) throw error;
+
+    // The line now has a cost row, so it drops out of new_orders. Orders and
+    // the profit views only change after a Recalculate, so they are left alone
+    // rather than reloaded to show the same numbers.
+    await invalidate("new-orders");
+  } catch (err) {
+    console.error(err);
+    button.disabled = false;
+    button.textContent = "Save";
+    showError(`Couldn't save the cost: ${err.message || err}`);
+  }
+}
+
+// Reposting is a separate, explicit step. Saving a cost is cheap; rebuilding the
+// ledger walks every order, purchase and settlement row for the store, so doing
+// it per save would make a ten-line data-entry pass ten full rebuilds.
+async function recalculate() {
+  const storeId = requireStore();
+  if (!storeId) return;
+  clearError();
+  recalcBtn.disabled = true;
+  setSyncStatus("Recalculating the ledger...", "busy");
+  try {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) {
+      setSyncStatus("", null);
+      showError("Your session has expired - sign in again.");
+      return;
+    }
+    const resp = await fetch(`/post?store_id=${encodeURIComponent(storeId)}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    let payload = {};
+    try {
+      payload = await resp.json();
+    } catch (_) {
+      // non-JSON response; fall through to status-based messaging
+    }
+    if (!resp.ok) {
+      setSyncStatus("", null);
+      showError(payload.detail || `Recalculation failed (HTTP ${resp.status}).`);
+    } else if (!payload.ok) {
+      setSyncStatus("Recalculated with warnings", "warn");
+      showError("The ledger rebuild reported a problem:\n\n" + (payload.output || "No details returned."));
+    } else {
+      setSyncStatus("Ledger up to date", "ok");
+    }
+    await invalidateAll();
+  } catch (err) {
+    console.error(err);
+    setSyncStatus("", null);
+    showError(`Recalculation request failed: ${err.message || err}`);
+  } finally {
+    recalcBtn.disabled = false;
+  }
+}
+
 function updateSummary(profitRows, productRows) {
   const totalRevenue = profitRows.reduce((sum, row) => sum + Number(row.revenue), 0);
   const totalCogs = profitRows.reduce((sum, row) => sum + Number(row.cogs), 0);
@@ -2152,7 +2949,7 @@ async function clearProductCost(storeId, sku) {
     showError(`Couldn't clear cost: ${error.message || error}`);
     return;
   }
-  await invalidate("dashboard", "products", "order-details", "profit");
+  await invalidate("skus", "products", "order-details", "profit");
 }
 
 function renderStatusBadge(status) {
@@ -2255,6 +3052,16 @@ function cell(spec) {
     inner.className = "truncate-inner";
     inner.textContent = text;
     td.appendChild(inner);
+    if (spec.cls) td.classList.add(spec.cls);
+    return td;
+  }
+  if ("badge" in spec) {
+    const { label, tone, title } = spec.badge;
+    const span = document.createElement("span");
+    span.className = `badge badge-${tone}`;
+    span.textContent = label;
+    if (title) span.title = title;
+    td.appendChild(span);
     if (spec.cls) td.classList.add(spec.cls);
     return td;
   }
@@ -2361,7 +3168,7 @@ async function saveUnitCost(storeId, sku, value) {
     return;
   }
 
-  await invalidate("dashboard", "products", "order-details", "profit");
+  await invalidate("skus", "products", "order-details", "profit");
 }
 
 function renderWarehouseCostInput(storeId, sku, unitCost, warehouseCost) {
@@ -2386,7 +3193,7 @@ async function saveWarehouseCost(storeId, sku, unitCost, value) {
     return;
   }
 
-  await invalidate("products", "order-details", "profit");
+  await invalidate("skus", "products", "order-details", "profit");
 }
 
 function customerDetails(row) {
@@ -2395,6 +3202,60 @@ function customerDetails(row) {
     .join(", ");
 }
 
+// Ranked by how badly each state undermines net profit.
+//
+// Keyed on uncertain_reason, NOT is_uncertain: that flag is set for BOTH
+// 'estimated_fee' (129 lines) and 'estimated_cost' (4), so treating it as a
+// cost signal would brand 129 estimated-fee lines as having no cost basis --
+// false, and exactly the kind of confident-but-wrong label this whole app
+// exists to stop. fee_source is a separate axis and is read separately.
+function confidenceBadge(row) {
+  // Profit is unknowable, not zero. Currently fires on no line -- every counted
+  // line has a cost basis -- but a newly sold SKU with no purchase logged lands
+  // here, and that must not render as a confident number.
+  if (row.counts_in_profit && Math.round(Number(row.total_purchase_price || 0) * 100) === 0) {
+    return {
+      label: "no cost",
+      tone: "red",
+      title: "No cost basis for this line, so its profit is unknown rather than zero. "
+        + "Log a purchase, or set a cost on the Products tab.",
+    };
+  }
+  if (row.uncertain_reason === "estimated_cost") {
+    return {
+      label: "cost estimated",
+      tone: "red",
+      title: "COGS here is a placeholder, not your real buying price. "
+        + "Logging the actual purchase replaces it automatically.",
+    };
+  }
+  if (row.fee_source === "none") {
+    return {
+      label: "fees pending",
+      tone: "gray",
+      title: "Not in a settlement file yet, so Walmart's fees are still missing entirely. "
+        + "Normal for an order that has not shipped.",
+    };
+  }
+  if (row.uncertain_reason === "estimated_fee") {
+    return {
+      label: "fees estimated",
+      tone: "amber",
+      title: "Fees are calibrated estimates from the workbook, not Walmart's recon file. "
+        + "They move when settlement lands.",
+    };
+  }
+  return {
+    label: "settled",
+    tone: "green",
+    title: "Cost is known and fees are confirmed by Walmart's settlement file. This number is final.",
+  };
+}
+
+// Deliberately does NOT show unit prices, total cost or margin: all five were
+// pure arithmetic on columns already here (unit x qty == total on every one of
+// the 549 lines), so they cost width and bought nothing. The drawer still has
+// every field for a line.
 function renderOrderDetailRow(row, serial) {
   const totalWarehouseCost = (Number(row.order_qty) || 0) * (Number(row.warehouse_cost) || 0);
 
@@ -2406,18 +3267,14 @@ function renderOrderDetailRow(row, serial) {
     { truncate: row.product_name || "" },
     { truncate: customerDetails(row) },
     { num: row.order_qty },
-    { money: row.unit_selling_price },
-    { money: row.extra_shipping },
-    { money: row.unit_purchase_price },
     { money: row.total_selling_price },
     { money: row.total_extra_shipping },
     { money: row.total_purchase_price },
     { money: row.walmart_fees, cls: "col-fees" },
     { money: row.wfs_label_fees, cls: "col-fees" },
     { money: totalWarehouseCost },
-    { money: row.total_cost },
     { money: row.net_profit, cls: signClass(row.net_profit) },
-    { text: row.margin_pct != null ? `${fmtNum(row.margin_pct)}%` : "", cls: signClass(row.margin_pct) },
+    { badge: confidenceBadge(row) },
     row.order_status,
     { money: row.refund_fees, cls: "col-fees" },
     { money: row.extra_service_fees, cls: "col-fees" },
@@ -2456,7 +3313,7 @@ purchaseForm.addEventListener("submit", async (e) => {
   purchaseForm.reset();
   document.getElementById("purchase-date").value = today();
   // purchases now drive COGS via landed cost, so profit views are stale too
-  await invalidate("purchases", "inventory", "dashboard", "order-details", "profit");
+  await invalidate("purchases", "inventory", "skus", "order-details", "profit");
 });
 
 damagedForm.addEventListener("submit", async (e) => {
