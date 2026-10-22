@@ -109,6 +109,37 @@ class WalmartClient:
             url = f"{BASE_URL}/orders{next_cursor}"
             params = None
 
+    def get_returns(self, start_date: str, end_date: str, limit: int = 100):
+        """Yield return orders created between two ISO dates.
+
+        The order API never reports a return -- a refunded line still reads
+        Delivered -- so this is the only place the reason exists. Each return
+        line carries purchaseOrderId and purchaseOrderLineNumber, which compose
+        the same source_id the ledger keys on.
+
+        Both dates are mandatory. Sending only returnCreationStartDate is
+        rejected with MISSING_REQUEST_PARAM.GMP_RETURNS_API rather than
+        defaulting the other end, which is the sort of thing that otherwise
+        surfaces in production at 2am.
+        """
+        url = f"{BASE_URL}/returns"
+        params = {
+            "returnCreationStartDate": start_date,
+            "returnCreationEndDate": end_date,
+            "limit": limit,
+        }
+        while True:
+            data = self._get(url, params=params)
+            orders = data.get("returnOrders", [])
+            for order in orders:
+                yield order
+
+            next_cursor = (data.get("meta") or {}).get("nextCursor")
+            if not orders or not next_cursor:
+                break
+            url = f"{BASE_URL}/returns"
+            params = {"cursor": next_cursor}
+
     def get_items(self, limit: int = 200):
         """Yield every item in the seller's catalog (offset-based pagination)."""
         offset = 0

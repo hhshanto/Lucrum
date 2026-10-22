@@ -2057,7 +2057,7 @@ function renderDrawerDetail(row) {
   const where = [row.customer_city, row.customer_state].filter(Boolean).join(", ");
   grid("Order", [
     ["Date", fmtDate(row.order_date)],
-    ["Status", statusBadgeEl(row.order_status, row.returns)],
+    ["Status", statusBadgeEl(row.order_status, row.returns, row)],
     ["Quantity", fmtNum(row.order_qty)],
     ["Customer", row.customer_name],
     ["Ships to", where],
@@ -2066,6 +2066,17 @@ function renderDrawerDetail(row) {
     // disagreement can be traced without opening a database session.
     ["Purchase order", row.purchase_order_id
       ? `${row.purchase_order_id}:${row.line_number}` : ""],
+  ]);
+
+  // Only rendered when the Returns API actually knows about it, so an ordinary
+  // sale shows no empty "Return" block.
+  grid("Return", [
+    ["Reason", prettyReason(row.return_reason, row.return_description)],
+    ["Returned on", row.return_order_date ? fmtDate(row.return_order_date) : ""],
+    ["Return status", row.return_status],
+    ["Refund in settlement", row.return_reason
+      ? (Number(row.returns || 0) !== 0 ? fmtMoney(row.returns) : "not settled yet")
+      : ""],
   ]);
 
   // An unposted line has no money at all, so showing a money block of zeros
@@ -2505,23 +2516,40 @@ const STATUS_TONE = {
   "status-returned": "purple",
 };
 
-function statusBadgeSpec(status, returns) {
-  const returned = Number(returns || 0) !== 0;
+// LOST_IN_TRANSIT -> "Lost in Transit". Walmart sends a description alongside
+// the code, so this is only a fallback for reasons it omits one for.
+function prettyReason(reason, description) {
+  if (description) return description;
+  if (!reason) return "";
+  return String(reason).toLowerCase().replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function statusBadgeSpec(status, returns, row) {
+  const reason = prettyReason(row && row.return_reason, row && row.return_description);
+  // Either source is enough to call it returned: settlement carries the money,
+  // the Returns API carries the reason, and one can arrive before the other.
+  const returned = Number(returns || 0) !== 0 || Boolean(row && row.return_reason);
   if (!returned && !String(status || "").trim()) return null;
-  const cls = monthStatusClass(status, returns);
+  if (!returned) return { label: status, tone: STATUS_TONE[monthStatusClass(status)] || "gray" };
+
+  const unsettled = Number(returns || 0) === 0;
   return {
-    label: returned ? "Returned" : status,
-    tone: STATUS_TONE[cls] || "gray",
-    title: returned
-      ? `Walmart still reports this as "${status}" -- its order API never marks a `
-        + "return. The refund was found in the settlement report."
-      : "",
+    // The reason is the useful part -- "Returned" alone just restates what the
+    // violet row already says.
+    label: reason ? `Returned - ${reason}` : "Returned",
+    tone: STATUS_TONE["status-returned"],
+    title: `Walmart still reports this as "${status}" -- its order API never marks a `
+      + "return, so the status column is not wrong, it is blind."
+      + (unsettled
+        ? " No refund has appeared in settlement yet, so the revenue is still counted as earned."
+        : " The refund amount comes from the settlement report."),
   };
 }
 
 // Same pill, built as an element for the drawer's fact grid, which takes Nodes.
-function statusBadgeEl(status, returns) {
-  const spec = statusBadgeSpec(status, returns);
+function statusBadgeEl(status, returns, row) {
+  const spec = statusBadgeSpec(status, returns, row);
   if (!spec) return "";
   const span = document.createElement("span");
   span.className = `badge badge-${spec.tone}`;
@@ -2571,11 +2599,12 @@ function monthlySheetRow(row) {
         : `${fmtNum(row.roi_pct)}%`,
       cls: posted ? signClass(row.roi_pct) : "muted",
     },
-    { badge: statusBadgeSpec(row.order_status, row.returns) },
+    { badge: statusBadgeSpec(row.order_status, row.returns, row) },
     { text: "", cls: "col-tracking" },
   ]);
 
-  const statusCls = monthStatusClass(row.order_status, row.returns);
+  const statusCls = monthStatusClass(row.order_status, row.returns)
+    || (row.return_reason ? "status-returned" : "");
   if (statusCls) tr.classList.add(statusCls);
 
   if (!posted) {

@@ -141,6 +141,52 @@ def sync_orders(supabase, store_id: str, client: WalmartClient, days: int,
     return len(line_rows)
 
 
+def sync_returns(supabase, store_id: str, client: WalmartClient, since):
+    """Pull return orders so a refunded line can say WHY it came back.
+
+    Deliberately stores no refund amount against a line. settlement is the only
+    source of refund money -- the ledger already derives return_revenue from it
+    -- and a second source would double-count every refund. The order-level
+    total is kept as reported, under a name that says so.
+    """
+    start = (since or dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=MAX_DAYS))
+    end = dt.datetime.now(dt.timezone.utc)
+
+    rows = []
+    for order in client.get_returns(start.date().isoformat(), end.date().isoformat()):
+        total = (order.get("totalRefundAmount") or {}).get("currencyAmount")
+        for line in order.get("returnOrderLines", []):
+            po = line.get("purchaseOrderId")
+            # Walmart numbers the order line as an int here and as text on
+            # order_lines, so normalise or the source_id will never match.
+            po_line = line.get("purchaseOrderLineNumber")
+            po_line = str(po_line) if po_line is not None else None
+            rows.append({
+                "store_id": store_id,
+                "return_order_id": order.get("returnOrderId"),
+                "return_line_number": line.get("returnOrderLineNumber"),
+                "customer_order_id": order.get("customerOrderId"),
+                "purchase_order_id": po,
+                "order_line_number": po_line,
+                "source_id": f"{po}:{po_line}" if po and po_line else None,
+                "sku": (line.get("item") or {}).get("sku"),
+                "return_reason": line.get("returnReason"),
+                "return_description": line.get("returnDescription"),
+                "line_status": line.get("status"),
+                "return_order_date": order.get("returnOrderDate"),
+                "return_by_date": order.get("returnByDate"),
+                "order_refund_total": total,
+                "refund_mode": order.get("refundMode"),
+                "raw": line,
+            })
+
+    for i in range(0, len(rows), 200):
+        supabase.table("return_lines").upsert(rows[i:i + 200]).execute()
+
+    print(f"  synced {len(rows)} return line(s)")
+    return len(rows)
+
+
 def sync_products(supabase, store_id: str, client: WalmartClient):
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     rows = []
@@ -332,6 +378,14 @@ def main():
         if _run_feed(supabase, store_id, "products",
                      lambda: sync_products(supabase, store_id, client),
                      since=None) == "failed":
+            failures += 1
+
+        # Returns are the only place a refund reason exists -- the order API
+        # reports a returned line as Delivered forever.
+        returns_since = None if args.full else _watermark(supabase, store_id, "returns")
+        if _run_feed(supabase, store_id, "returns",
+                     lambda: sync_returns(supabase, store_id, client, returns_since),
+                     since=returns_since) == "failed":
             failures += 1
 
     if failures:
