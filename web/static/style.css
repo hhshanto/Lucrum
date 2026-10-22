@@ -1047,6 +1047,13 @@ h4.drawer-section {
   color: #b91c1c;
 }
 
+/* Shipped. The other three status tones already existed and their backgrounds
+   happen to be exactly the row tints, so a pill and its row read as one thing. */
+.badge-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 /* ---------- Cost import/export + missing-cost flags ---------- */
 
 .card-header-row {

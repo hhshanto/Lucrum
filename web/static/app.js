@@ -2057,7 +2057,7 @@ function renderDrawerDetail(row) {
   const where = [row.customer_city, row.customer_state].filter(Boolean).join(", ");
   grid("Order", [
     ["Date", fmtDate(row.order_date)],
-    ["Status", row.order_status],
+    ["Status", statusBadgeEl(row.order_status)],
     ["Quantity", fmtNum(row.order_qty)],
     ["Customer", row.customer_name],
     ["Ships to", where],
@@ -2488,6 +2488,31 @@ function monthStatusClass(status) {
   return "";
 }
 
+// Badge tones deliberately reuse the row-tint backgrounds, so a pill and the
+// row it sits in read as the same signal rather than two colour schemes.
+const STATUS_TONE = {
+  "status-delivered": "green",
+  "status-shipped": "blue",
+  "status-acknowledged": "amber",
+  "status-created": "amber",
+  "status-cancelled": "red",
+};
+
+function statusBadgeSpec(status) {
+  if (!String(status || "").trim()) return null;
+  return { label: status, tone: STATUS_TONE[monthStatusClass(status)] || "gray" };
+}
+
+// Same pill, built as an element for the drawer's fact grid, which takes Nodes.
+function statusBadgeEl(status) {
+  const spec = statusBadgeSpec(status);
+  if (!spec) return "";
+  const span = document.createElement("span");
+  span.className = `badge badge-${spec.tone}`;
+  span.textContent = spec.label;
+  return span;
+}
+
 // total_sold, not total_selling_price, for column K: the workbook's "Total
 // Selling Price" is product revenue PLUS shipping. A27 added it.
 //
@@ -2526,7 +2551,7 @@ function monthlySheetRow(row) {
         : `${fmtNum(row.roi_pct)}%`,
       cls: posted ? signClass(row.roi_pct) : "",
     },
-    row.order_status,
+    { badge: statusBadgeSpec(row.order_status) },
     { text: "", cls: "col-tracking" },
   ]);
 
@@ -2638,7 +2663,7 @@ function newOrderRow(row) {
     { truncate: row.product_name || "" },
     { num: row.quantity },
     { money: row.total_revenue },
-    row.status,
+    { badge: statusBadgeSpec(row.status) },
   ]);
 
   if (!isAdmin) {
@@ -3056,7 +3081,14 @@ function cell(spec) {
     return td;
   }
   if ("badge" in spec) {
-    const { label, tone, title } = spec.badge;
+    // A null badge is a legitimate "nothing to show" -- order status is free
+    // text from Walmart and can be absent -- so render an empty cell rather
+    // than throwing on the destructure.
+    const { label, tone, title } = spec.badge || {};
+    if (!label) {
+      if (spec.cls) td.classList.add(spec.cls);
+      return td;
+    }
     const span = document.createElement("span");
     span.className = `badge badge-${tone}`;
     span.textContent = label;
