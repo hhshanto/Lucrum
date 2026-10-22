@@ -1174,6 +1174,17 @@ tbody tr.row-missing-cost {
 .pos { color: var(--pos); font-weight: 600; }
 .neg { color: var(--neg); font-weight: 600; }
 
+/* A cost of 0.00 that means "not recorded", not "free". It sits on top of the
+   status row tints, so it needs its own opaque background rather than a text
+   colour alone -- red text on the cancelled row's pink would barely register.
+   Deeper than the 100-level row tints for exactly that reason. */
+.cost-missing {
+  background: #fecaca;
+  color: #991b1b;
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px #f87171;
+}
+
 .fee-toggle {
   display: inline-flex;
   align-items: center;

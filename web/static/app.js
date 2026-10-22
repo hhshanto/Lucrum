@@ -2778,6 +2778,24 @@ function monthlySheetRow(row) {
   const money = (v, cls) => (posted ? { money: v, cls } : { text: "\u2014", cls: "muted" });
   const photo = { text: "", cls: "col-photo" };
 
+  // A posted line with no cost reports its entire revenue as profit, so the
+  // 0.00 is not a measurement -- it is a gap wearing the costume of one, and it
+  // inflates every total it feeds. Flagged red at the source cell rather than
+  // on the profit, because the cost is the thing the reader can actually fix.
+  // Cancelled lines are exempt: they post nothing and owe no cost.
+  const uncosted = posted
+    && !(row.order_status || "").toLowerCase().includes("cancel")
+    && Math.round(Number(row.unit_purchase_price || 0) * 100) === 0;
+  const costCell = uncosted
+    ? {
+        money: row.unit_purchase_price,
+        cls: "cost-missing",
+        title: "No cost recorded for this line, so its profit is unknown rather than "
+          + "high. The figures to its right count the full sale as profit until you "
+          + "enter what you paid.",
+      }
+    : money(row.unit_purchase_price);
+
   const tr = renderRow([
     { date: row.order_date },
     photo,
@@ -2789,7 +2807,7 @@ function monthlySheetRow(row) {
     money(row.unit_selling_price),
     money(row.extra_shipping),
     money(row.total_sold),
-    money(row.unit_purchase_price),
+    costCell,
     money(row.total_purchase_price),
     money(row.walmart_fees),
     money(row.label_walmart),
@@ -3446,6 +3464,9 @@ function cell(spec) {
   else if ("date" in spec) text = fmtDate(spec.date);
   else if ("text" in spec) text = spec.text ?? "";
   if (spec.cls) td.classList.add(spec.cls);
+  // A flagged cell has to be able to say why it is flagged, or the colour is
+  // just decoration the reader has to guess at.
+  if (spec.title) td.title = spec.title;
   td.textContent = text;
   return td;
 }
