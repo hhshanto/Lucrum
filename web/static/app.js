@@ -278,16 +278,33 @@ function atCurrentMonth() {
   return sheetMonth.y === now.getFullYear() && sheetMonth.m === now.getMonth() + 1;
 }
 
+// Who is signed in, as far as the UI is concerned. Compared against on every
+// auth event so a refresh that changes nothing does not rebuild the page.
+let sessionUserId = null;
+
 async function init() {
   const config = await fetch("/config").then((r) => r.json());
   supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
 
+  // Establish the current identity BEFORE listening, so the initial event has
+  // something to compare against instead of double-loading the dashboard.
+  const { data } = await supabaseClient.auth.getSession();
+  sessionUserId = data.session?.user?.id ?? null;
+  showSession(data.session);
+
+  // supabase-js re-emits SIGNED_IN and fires TOKEN_REFRESHED every time the tab
+  // regains focus. showSession() calls loadDashboard(), which clears the cache
+  // and re-renders every tab -- so alt-tabbing away to copy a supplier price
+  // and coming back wiped whatever had been typed into the costing queue.
+  //
+  // Only an actual change of identity warrants a rebuild. A token refresh
+  // changes nothing the user can see.
   supabaseClient.auth.onAuthStateChange((_event, session) => {
+    const userId = session?.user?.id ?? null;
+    if (userId === sessionUserId) return;
+    sessionUserId = userId;
     showSession(session);
   });
-
-  const { data } = await supabaseClient.auth.getSession();
-  showSession(data.session);
 }
 
 function showSession(session) {
