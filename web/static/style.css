@@ -871,16 +871,19 @@ h4.drawer-section {
    they stay opaque while the rest scrolls underneath -- a tr-level background
    would paint behind them and leave the pinned cells white. That is also why
    the generic `tbody tr:hover` rule does nothing on this table. */
-#monthly-sheet-table tbody tr.status-delivered td    { background: #f0fdf4; }
-#monthly-sheet-table tbody tr.status-shipped td      { background: #eff6ff; }
-#monthly-sheet-table tbody tr.status-acknowledged td { background: #fffbeb; }
-#monthly-sheet-table tbody tr.status-created td      { background: #fffbeb; }
-#monthly-sheet-table tbody tr.status-cancelled td    { background: #fef2f2; }
+/* 100-level tints, matching the badge palette already in use. The 50-level
+   versions were a hair off white and read as "nothing changed" -- the same
+   mistake as the near-white dotted leader. */
+#monthly-sheet-table tbody tr.status-delivered td    { background: #dcfce7; }
+#monthly-sheet-table tbody tr.status-shipped td      { background: #dbeafe; }
+#monthly-sheet-table tbody tr.status-acknowledged td { background: #fef3c7; }
+#monthly-sheet-table tbody tr.status-created td      { background: #fef3c7; }
+#monthly-sheet-table tbody tr.status-cancelled td    { background: #fee2e2; }
 
 /* Hover has to be td-level for the same reason, and must outrank the tints so
    the row you are pointing at is still obvious. */
 #monthly-sheet-table tbody tr.drillable:hover td {
-  background: #e2e8f0;
+  background: #cbd5e1;
 }
 
 /* Legend. Colour with no key is decoration, not information. */
