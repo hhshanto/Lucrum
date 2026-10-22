@@ -115,6 +115,7 @@ const monthlySheetSummary = document.getElementById("monthly-sheet-summary");
 const newOrdersSummary = document.getElementById("new-orders-summary");
 const newOrdersCount = document.getElementById("new-orders-count");
 const recalcBtn = document.getElementById("recalc-btn");
+const recalcHint = document.getElementById("recalc-hint");
 
 
 const purchaseForm = document.getElementById("purchase-form");
@@ -2846,6 +2847,12 @@ async function saveLineCost(row, inputs, button) {
     // The line now has a cost row, so it drops out of new_orders. Orders and
     // the profit views only change after a Recalculate, so they are left alone
     // rather than reloaded to show the same numbers.
+    //
+    // Which is exactly why the saved count is surfaced: a cost that is stored
+    // but not yet posted looks identical to one that failed to save, and the
+    // explanation was buried in a paragraph above the table.
+    unpostedCosts += 1;
+    updateRecalcHint();
     await invalidate("new-orders");
   } catch (err) {
     console.error(err);
@@ -2862,6 +2869,18 @@ async function saveLineCost(row, inputs, button) {
     }
     showError(`Couldn't save the cost: ${err.message || err}`);
   }
+}
+
+// Costs saved since the ledger was last rebuilt. Stored but not yet reflected
+// in a single profit figure, which is an invisible state without this.
+let unpostedCosts = 0;
+
+function updateRecalcHint() {
+  if (!recalcHint) return;
+  recalcHint.hidden = unpostedCosts === 0;
+  recalcHint.textContent = unpostedCosts === 0
+    ? ""
+    : `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved - not in your profit figures yet`;
 }
 
 // Reposting is a separate, explicit step. Saving a cost is cheap; rebuilding the
@@ -2898,6 +2917,8 @@ async function recalculate() {
       showError("The ledger rebuild reported a problem:\n\n" + (payload.output || "No details returned."));
     } else {
       setSyncStatus("Ledger up to date", "ok");
+      unpostedCosts = 0;
+      updateRecalcHint();
     }
     await invalidateAll();
   } catch (err) {

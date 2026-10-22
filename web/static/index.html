@@ -150,11 +150,14 @@
           <div class="card-header">
             <div class="card-header-row">
               <h2>Orders waiting to be costed</h2>
-              <button id="recalc-btn" class="btn-secondary admin-only" type="button"
-                      title="Rebuild the ledger so newly entered costs flow into every profit figure">
-                <span class="refresh-icon" aria-hidden="true">&#8635;</span>
-                <span class="refresh-label">Recalculate</span>
-              </button>
+              <div class="recalc-group">
+                <span id="recalc-hint" class="sync-status sync-warn" hidden></span>
+                <button id="recalc-btn" class="btn-secondary admin-only" type="button"
+                        title="Rebuild the ledger so newly entered costs flow into every profit figure">
+                  <span class="refresh-icon" aria-hidden="true">&#8635;</span>
+                  <span class="refresh-label">Recalculate</span>
+                </button>
+              </div>
             </div>
             <p class="note">
               Sales that have landed but whose supplier cost you haven't recorded yet.

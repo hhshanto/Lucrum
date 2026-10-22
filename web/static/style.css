@@ -1008,6 +1008,12 @@ h4.drawer-section {
   display: none;
 }
 
+.recalc-group {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 .col-toggles {
   display: flex;
   gap: 0.9rem;
