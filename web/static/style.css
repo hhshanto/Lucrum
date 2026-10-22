@@ -1008,6 +1008,26 @@ h4.drawer-section {
   display: none;
 }
 
+/* Editable cost block in the drawer. Inputs sit in the same leader-dot grid as
+   the read-only facts, so an editable figure lines up with the ones above it. */
+.drawer-cost {
+  padding-top: 0.4rem;
+  margin-bottom: 0.4rem;
+  border-top: 1px solid var(--border);
+}
+
+.drawer-cost .fact-row dd input[type="number"] {
+  width: 7rem;
+  text-align: right;
+  padding: 0.22rem 0.4rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.drawer-cost .modal-actions {
+  margin-top: 0.8rem;
+}
+
 .recalc-group {
   display: flex;
   gap: 0.6rem;

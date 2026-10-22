@@ -1944,6 +1944,7 @@ const drawerSubtitle = document.getElementById("drawer-subtitle");
 const drawerTableBody = document.querySelector("#drawer-table tbody");
 const drawerTotal = document.getElementById("drawer-total");
 const drawerDetail = document.getElementById("drawer-detail");
+const drawerCost = document.getElementById("drawer-cost");
 const drawerSettlementWrap = document.getElementById("drawer-settlement-wrap");
 const drawerSettlementBody = document.querySelector("#drawer-settlement-table tbody");
 
@@ -2136,6 +2137,186 @@ function renderDrawerDetail(row) {
   ]);
 }
 
+// The recorded cost, editable in place. Without this a figure typed once was
+// permanent: the line leaves the costing queue the moment it is saved, and
+// order_line_costs has no other write path in the app.
+//
+// Reads the table directly rather than taking the numbers off monthly_sheet,
+// because the sheet shows what the LEDGER holds -- derived, rounded, and stale
+// until a rebuild. Editing that would mean writing back a figure the user never
+// typed.
+async function loadDrawerCost(row) {
+  drawerCost.innerHTML = "";
+  drawerCost.hidden = true;
+  if (!row || !row.source_id) return;
+  if (!adminStores.has(row.store_id)) return; // RLS would reject the write anyway
+
+  let existing = null;
+  try {
+    const { data, error } = await supabaseClient
+      .from("order_line_costs").select("*")
+      .eq("store_id", row.store_id).eq("source_id", row.source_id).limit(1);
+    if (error) throw error;
+    existing = (data || [])[0] || null;
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+
+  drawerCost.hidden = false;
+  const head = document.createElement("h4");
+  head.className = "drawer-section";
+  head.textContent = existing ? "Recorded cost" : "No cost recorded";
+  drawerCost.appendChild(head);
+
+  const note = document.createElement("p");
+  note.className = "note drawer-note";
+  note.textContent = existing
+    ? `From ${existing.source || "unknown"} (${existing.basis}). Correct it here; `
+      + "the figures only move once you Recalculate."
+    : "Nothing has been recorded for this line. Entering a cost here is the same "
+      + "as costing it from the New Orders queue.";
+  drawerCost.appendChild(note);
+
+  const fields = [
+    ["unit_cost", "Unit cost (per item)", true],
+    ["warehouse_cost", "Warehouse", false],
+    ["label_walmart", "Label (Walmart)", false],
+    ["label_third_party", "Label (3rd party)", false],
+  ];
+  const inputs = {};
+  const dl = document.createElement("dl");
+  dl.className = "fact-grid";
+  for (const [key, label, required] of fields) {
+    const line = document.createElement("div");
+    line.className = "fact-row";
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "0.01";
+    input.min = "0";
+    if (required) input.required = true;
+    if (existing && existing[key] !== null && existing[key] !== undefined) {
+      input.value = existing[key];
+    }
+    inputs[key] = input;
+    dd.appendChild(input);
+    line.append(dt, dd);
+    dl.appendChild(line);
+  }
+  drawerCost.appendChild(dl);
+
+  const err = document.createElement("p");
+  err.className = "error";
+  err.hidden = true;
+  drawerCost.appendChild(err);
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+
+  // modal-actions is space-between, so the left slot needs filling even when
+  // there is nothing to remove -- otherwise the save button slides left.
+  if (existing) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "btn-danger";
+    remove.textContent = "Remove cost";
+    remove.title = "Deletes the recorded cost and puts the line back in the New Orders queue.";
+    remove.addEventListener("click", () => removeLineCost(row, err, remove));
+    actions.appendChild(remove);
+  } else {
+    actions.appendChild(document.createElement("span"));
+  }
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = existing ? "Update cost" : "Save cost";
+  save.addEventListener("click", () => saveDrawerCost(row, inputs, err, save));
+  actions.appendChild(save);
+
+  drawerCost.appendChild(actions);
+}
+
+async function saveDrawerCost(row, inputs, errEl, button) {
+  const num = (input) => {
+    const raw = input.value.trim();
+    return raw === "" ? null : Number(raw);
+  };
+  const unitCost = num(inputs.unit_cost);
+  if (unitCost === null || !Number.isFinite(unitCost) || unitCost <= 0) {
+    errEl.textContent = "Unit cost must be greater than zero.";
+    errEl.hidden = false;
+    return;
+  }
+  for (const [key, input] of Object.entries(inputs)) {
+    const v = num(input);
+    if (v !== null && (!Number.isFinite(v) || v < 0)) {
+      errEl.textContent = `${key.replace(/_/g, " ")} must be zero or more.`;
+      errEl.hidden = false;
+      return;
+    }
+  }
+
+  errEl.hidden = true;
+  button.disabled = true;
+  button.textContent = "Saving...";
+  try {
+    // upsert, so this one path both creates and corrects. basis becomes 'exact'
+    // and source 'manual entry' because that is now the truth -- a figure typed
+    // by hand is no longer an imputed median or a workbook row.
+    const { error } = await supabaseClient.from("order_line_costs").upsert({
+      store_id: row.store_id,
+      source_id: row.source_id,
+      customer_order_id: row.customer_order_id,
+      sku: row.sku,
+      unit_cost: unitCost,
+      basis: "exact",
+      source: "manual entry",
+      warehouse_cost: num(inputs.warehouse_cost),
+      label_walmart: num(inputs.label_walmart),
+      label_third_party: num(inputs.label_third_party),
+    }, { onConflict: "store_id,source_id" });
+    if (error) throw error;
+
+    unpostedCosts += 1;
+    updateRecalcHint();
+    closeDrawer();
+    await invalidate("new-orders", "month");
+  } catch (e) {
+    console.error(e);
+    button.disabled = false;
+    button.textContent = "Save cost";
+    errEl.textContent = `Couldn't save: ${e.message || e}`;
+    errEl.hidden = false;
+  }
+}
+
+async function removeLineCost(row, errEl, button) {
+  errEl.hidden = true;
+  button.disabled = true;
+  button.textContent = "Removing...";
+  try {
+    const { error } = await supabaseClient.from("order_line_costs").delete()
+      .eq("store_id", row.store_id).eq("source_id", row.source_id);
+    if (error) throw error;
+
+    // Deleting does not unpost anything. Whatever the ledger already built from
+    // this cost stays until a rebuild, so the pending hint applies here too.
+    unpostedCosts += 1;
+    updateRecalcHint();
+    closeDrawer();
+    await invalidate("new-orders", "month");
+  } catch (e) {
+    console.error(e);
+    button.disabled = false;
+    button.textContent = "Remove cost";
+    errEl.textContent = `Couldn't remove: ${e.message || e}`;
+    errEl.hidden = false;
+  }
+}
+
 async function loadDrawerSettlement(customerOrderId) {
   drawerSettlementBody.innerHTML = "";
   drawerSettlementWrap.hidden = true;
@@ -2168,6 +2349,7 @@ async function openEntryDrawer({ title, subtitle, sourceId, customerOrderId, sku
   drawerTableBody.innerHTML = "";
   drawerTotal.textContent = "";
   renderDrawerDetail(detail);
+  loadDrawerCost(detail);
   loadDrawerSettlement(detail ? customerOrderId : null);
   entryDrawer.hidden = false;
   drawerScrim.hidden = false;
