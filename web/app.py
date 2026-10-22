@@ -143,20 +143,23 @@ def post_ledger(request: Request, store_id: str = ""):
             ),
         )
 
-    try:
-        proc = subprocess.run(
-            [sys.executable, "post_ledger.py", "--rebuild", "--store-id", store_id],
-            cwd=SYNCER_DIR,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Recalculation took too long and was stopped.")
+    # Called directly rather than as a subprocess. Building every figure for a
+    # store takes about ten milliseconds; spawning an interpreter to do it cost
+    # a second or two of pure startup, which was a fifth of the wait. It also
+    # means a failure arrives as an exception with a traceback instead of a
+    # return code and some scraped stdout.
+    if SYNCER_DIR not in sys.path:
+        sys.path.insert(0, SYNCER_DIR)
+    from post_ledger import rebuild_store  # noqa: E402  (path must be set first)
 
-    output = ((proc.stdout or "") + (proc.stderr or "")).strip()
-    failed = proc.returncode != 0
-    return {"ok": not failed, "returncode": proc.returncode, "output": output}
+    lines: list[str] = []
+    try:
+        rebuild_store(_service_client(), store_id, rebuild=True, log=lines.append)
+    except Exception as exc:                      # noqa: BLE001 - reported, not swallowed
+        lines.append(f"{type(exc).__name__}: {exc}")
+        return {"ok": False, "output": "\n".join(lines)}
+
+    return {"ok": True, "output": "\n".join(lines)}
 
 
 @app.post("/sync/orders")
