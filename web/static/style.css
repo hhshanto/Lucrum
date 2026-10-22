@@ -865,6 +865,36 @@ h4.drawer-section {
   font-style: italic;
 }
 
+/* ---------- Spreadsheet grid ---------- */
+
+/* The base table rule draws only border-bottom, so columns run together. These
+   two tables stand in for a spreadsheet, so they get vertical rules as well.
+   Scoped rather than global: every other table in the app is a report, and a
+   full grid there would be noise.
+
+   Not var(--border) (#e5e7eb) -- that reads as nothing once a row carries a
+   status tint behind it. gray-300 holds up over all four. */
+#monthly-sheet-table th,
+#monthly-sheet-table td,
+#new-orders-table th,
+#new-orders-table td {
+  border-right: 1px solid #d1d5db;
+}
+
+#monthly-sheet-table th:last-child,
+#monthly-sheet-table td:last-child,
+#new-orders-table th:last-child,
+#new-orders-table td:last-child {
+  border-right: none;
+}
+
+/* The base rule's bottom border is the same near-white, which disappears under
+   a tint for the same reason. */
+#monthly-sheet-table td,
+#new-orders-table td {
+  border-bottom: 1px solid #d1d5db;
+}
+
 /* ---------- Row tint by order status ---------- */
 
 /* Set on the td, not the tr. The frozen columns carry their own background so
