@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 from supabase import create_client
 
-from posting import post
+from posting import ENTRY_KEY_FIELDS, ENTRY_VALUE_FIELDS, post
 
 load_dotenv()
 
@@ -69,16 +69,25 @@ INPUT_TABLES = {
 }
 
 
-def fetch_inputs(sb, store_id):
+# What the ledger currently holds, for comparison against what it should hold.
+# entry_id and posted_at are excluded deliberately: both differ on every compute
+# and neither is a fact about the money.
+LEDGER_COLUMNS = "entry_type,source_kind,source_id,entry_date,sku,quantity,amount,note"
+UNCOSTED_COLUMNS = "source_id,sku,quantity,sale_date,reason"
+
+
+def fetch_inputs(sb, store_id, extra=None):
     """Read every input table at once.
 
     httpx's client is thread-safe and each query builds its own request, so the
     shared Supabase client is safe to use across these threads.
     """
-    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+    tables = dict(INPUT_TABLES)
+    tables.update(extra or {})
+    with ThreadPoolExecutor(max_workers=max(len(tables), 1)) as pool:
         futures = {
             key: pool.submit(fetch_all, sb, table, columns, store_id=store_id)
-            for key, (table, columns) in INPUT_TABLES.items()
+            for key, (table, columns) in tables.items()
         }
         return {key: f.result() for key, f in futures.items()}
 
@@ -94,6 +103,131 @@ def write_result(sb, result):
             result.uncosted[i:i + WRITE_BATCH],
             on_conflict="store_id,source_id",
             ignore_duplicates=True).execute()
+
+
+def _num(value, places=2):
+    return None if value is None else round(float(value), places)
+
+
+# Dates are compared as text because one side arrives as a date object from the
+# computation and the other as a string from PostgREST; money as rounded floats
+# because 2.5 and 2.50 are the same charge.
+_NORMALISE = {
+    "entry_date": lambda v: str(v)[:10],
+    "sale_date": lambda v: str(v)[:10],
+    "quantity": lambda v: _num(v, 4),
+    "amount": _num,
+    "note": lambda v: v or None,
+}
+
+
+def _fingerprint(row, fields):
+    return tuple(_NORMALISE.get(f, lambda v: v)(row.get(f)) for f in fields)
+
+
+def _entry_fingerprint(e):
+    """Everything about an entry that is a claim about money.
+
+    Driven by posting.ENTRY_VALUE_FIELDS rather than a list repeated here, so a
+    new field cannot be added to an entry without this noticing.
+    """
+    return _fingerprint(e, ENTRY_VALUE_FIELDS)
+
+
+UNCOSTED_VALUE_FIELDS = ("sku", "quantity", "sale_date", "reason")
+
+
+def _uncosted_fingerprint(u):
+    return _fingerprint(u, UNCOSTED_VALUE_FIELDS)
+
+
+def _changed_sources(desired, current, key_of, fingerprint):
+    """Which source_ids differ between what is stored and what should be.
+
+    A source is changed if any of its rows was added, removed or altered. Rows
+    are matched on their natural key; anything unmatched on either side counts.
+    """
+    want = {key_of(e): e for e in desired}
+    have = {key_of(e): e for e in current}
+    changed = set()
+    for key in want.keys() | have.keys():
+        a, b = want.get(key), have.get(key)
+        if a is None or b is None or fingerprint(a) != fingerprint(b):
+            changed.add(key[0] if isinstance(key, tuple) else key)
+    return changed
+
+
+def post_store_delta(sb, store_id, name="", *, log=print):
+    """Recompute the whole ledger, then write only the rows that moved.
+
+    This is NOT per-line posting. Every figure is still derived from every fact,
+    exactly as a full rebuild does, so the result is identical to one by
+    construction -- the arithmetic was never the expensive part. What it avoids
+    is deleting and re-uploading 3,489 unchanged rows to say that five of them
+    changed.
+
+    Reposting one line in isolation would have been faster still and quietly
+    wrong: fee calibration is a median over every settled line, so one line's
+    workbook fee moves the estimate applied to others.
+    """
+    log(f"Posting {name or store_id!r} ({store_id})...")
+
+    data = fetch_inputs(sb, store_id, extra={
+        "_entries": ("ledger_entries", LEDGER_COLUMNS),
+        "_uncosted": ("uncosted_lines", UNCOSTED_COLUMNS),
+    })
+    calibration = {r["entry_type"]: r for r in data["calibration"]}
+
+    log(f"  inputs: {len(data['orders'])} orders, {len(data['lines'])} lines, "
+        f"{len(data['purchases'])} purchases, {len(data['settlement'])} settlement rows")
+    if not calibration:
+        log("  calibration: NONE AVAILABLE -- workbook fees post unadjusted")
+
+    result = post(store_id, data["orders"], data["lines"], data["purchases"],
+                  data["costs"], data["settlement"], data["fee_map"],
+                  line_costs=data["line_costs"], fee_calibration=calibration)
+
+    changed = _changed_sources(
+        result.entries, data["_entries"],
+        lambda e: (e["source_id"], *(e[f] for f in ENTRY_KEY_FIELDS)),
+        _entry_fingerprint)
+    changed |= _changed_sources(
+        result.uncosted, data["_uncosted"],
+        lambda u: (u["source_id"],),
+        _uncosted_fingerprint)
+
+    log(f"  {len(result.entries)} entries computed, "
+        f"{len(data['_entries'])} stored, {len(changed)} source(s) differ")
+
+    if not changed:
+        log("  nothing changed -- ledger left untouched")
+        return result
+
+    # Deleting and re-inserting the affected sources, rather than updating them,
+    # because the ledger forbids UPDATE by design (A2). The delete has to happen
+    # inside the RPC: it lifts the append-only guard with set_config, which is
+    # transaction-local and would be gone by the time a separate request ran.
+    source_ids = sorted(changed)
+    wiped = sb.rpc("replace_ledger_sources",
+                   {"p_store_id": store_id, "p_source_ids": source_ids}).execute().data
+    if wiped:
+        log(f"  replaced: cleared {wiped[0]['deleted_entries']} entries, "
+            f"{wiped[0]['deleted_uncosted']} uncosted")
+
+    entries = [e for e in result.entries if e["source_id"] in changed]
+    uncosted = [u for u in result.uncosted if u["source_id"] in changed]
+    write_result(sb, _Subset(entries, uncosted))
+    log(f"  wrote {len(entries)} entries / {len(uncosted)} uncosted "
+        f"(of {len(result.entries)} computed)")
+    return result
+
+
+class _Subset:
+    """Just enough of PostingResult for write_result to take a slice of one."""
+
+    def __init__(self, entries, uncosted):
+        self.entries = entries
+        self.uncosted = uncosted
 
 
 def rebuild_store(sb, store_id, name="", *, rebuild=False, dry_run=False, log=print):

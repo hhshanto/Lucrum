@@ -150,11 +150,15 @@ def post_ledger(request: Request, store_id: str = ""):
     # return code and some scraped stdout.
     if SYNCER_DIR not in sys.path:
         sys.path.insert(0, SYNCER_DIR)
-    from post_ledger import rebuild_store  # noqa: E402  (path must be set first)
+    from post_ledger import post_store_delta  # noqa: E402  (path must be set first)
 
     lines: list[str] = []
     try:
-        rebuild_store(_service_client(), store_id, rebuild=True, log=lines.append)
+        # Recomputes every figure, then writes only the rows that moved. Not a
+        # per-line post: the whole ledger is still derived from every fact, so
+        # the outcome matches a full rebuild. Correcting one cost used to
+        # delete and re-upload all 3,489 entries to change five of them.
+        post_store_delta(_service_client(), store_id, log=lines.append)
     except Exception as exc:                      # noqa: BLE001 - reported, not swallowed
         lines.append(f"{type(exc).__name__}: {exc}")
         return {"ok": False, "output": "\n".join(lines)}

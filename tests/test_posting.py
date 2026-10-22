@@ -9,7 +9,8 @@ import datetime as dt
 
 import pytest
 
-from posting import CostBasis, landed_total, post, recognition_date
+from posting import (ENTRY_KEY_FIELDS, ENTRY_VALUE_FIELDS, CostBasis,
+                     landed_total, post, recognition_date)
 
 
 # ---------------------------------------------------------------- fixtures
@@ -687,3 +688,29 @@ def test_same_label_opposite_meaning_by_transaction_type():
     )
     assert amounts(result, "return_revenue") == [-25.0]
     assert amounts(result, "revenue_product") == [25.0]   # the sale row added nothing
+
+
+# ------------------------------------------------- partial-rebuild contract
+
+def test_entry_fields_are_all_either_identity_or_compared():
+    """post_ledger rewrites only the sources whose entries changed, which is
+    safe only while every field of an entry is either part of its key or part
+    of the comparison. A full wipe could not leave a stale row; the partial
+    path can, if a field is added to _entry and nowhere else.
+
+    If this fails, add the new field to ENTRY_KEY_FIELDS or ENTRY_VALUE_FIELDS
+    -- do not just widen this assertion.
+    """
+    result = post(
+        "store", [order()], [line(qty=2, revenue=50.0, shipping=5.0)],
+        [purchase(qty=2, unit=10.0)], [],
+    )
+    assert result.entries, "fixture produced no entries to inspect"
+
+    # store_id is the filter every query already carries, so it is neither.
+    accounted = {"store_id"} | set(ENTRY_KEY_FIELDS) | set(ENTRY_VALUE_FIELDS)
+    for entry in result.entries:
+        unaccounted = set(entry) - accounted
+        assert not unaccounted, (
+            f"{sorted(unaccounted)} is written to the ledger but never compared, "
+            "so a change to it would leave a stale row behind")

@@ -19,6 +19,21 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 
+# What identifies an entry, and what an entry claims about money.
+#
+# post_ledger compares exactly these fields when deciding whether a stored row
+# still matches the computation, so it can rewrite only what moved instead of
+# the whole ledger. A full wipe could not leave a stale row -- it deleted
+# everything -- and the partial path only keeps that guarantee while this list
+# stays complete. Add a field to _entry without adding it here and the ledger
+# goes quietly stale, so a test asserts the two agree.
+#
+# entry_id and posted_at are excluded on purpose: both change on every compute
+# and neither is a fact about the money. effective_for and reverses are set by
+# the database, never by posting.
+ENTRY_KEY_FIELDS = ("source_kind", "source_id", "entry_type")
+ENTRY_VALUE_FIELDS = ("entry_date", "sku", "quantity", "amount", "note")
+
 # Walmart statuses that mean "this sale is real and Walmart will pay for it".
 REALIZED_STATUSES = frozenset({"shipped", "delivered"})
 RETURN_STATUSES = frozenset({"returned", "refunded"})

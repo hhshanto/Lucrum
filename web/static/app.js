@@ -854,15 +854,24 @@ async function runQuery(table, rangeOverride) {
   throw new Error(`${table} returned more than ${MAX_ROWS} rows; refusing to page further.`);
 }
 
-async function loadTab(id, force = false) {
+// `quiet` is for a refresh the user did not ask for -- the one that follows an
+// automatic rebuild. A normal load empties the table and writes "Loading...",
+// which is right when the reader is waiting for data and wrong when they are
+// reading it: the page they were looking at blanks out and comes back scrolled
+// to the top, several seconds after they stopped doing anything. The old rows
+// stay up until the new ones are ready, and the scroll position survives.
+async function loadTab(id, force = false, { quiet = false } = {}) {
   const mod = modules[id];
   if (!mod) return;
   if (loaded.has(id) && !force) return;
-  clearError();
-  for (const [tbody, colspan] of mod.skeleton) {
-    tbody.innerHTML = "";
-    renderEmpty(tbody, colspan, "Loading...");
+  if (!quiet) {
+    clearError();
+    for (const [tbody, colspan] of mod.skeleton) {
+      tbody.innerHTML = "";
+      renderEmpty(tbody, colspan, "Loading...");
+    }
   }
+  const scrollers = quiet ? capturePositions() : null;
   try {
     // A module either declares Supabase tables, or brings its own loader.
     let data;
@@ -875,14 +884,39 @@ async function loadTab(id, force = false) {
     }
     mod.render(data);
     loaded.add(id);
+    if (scrollers) restorePositions(scrollers);
   } catch (err) {
     console.error(err);
     showError(`Couldn't load data: ${err.message || err}`);
-    for (const [tbody, colspan] of mod.skeleton) {
-      tbody.innerHTML = "";
-      renderEmpty(tbody, colspan, "Couldn't load - see the message above.");
+    // A quiet refresh that failed leaves the rows it already had. Replacing
+    // them with an error placeholder would throw away readable data because a
+    // background task the user never started went wrong.
+    if (!quiet) {
+      for (const [tbody, colspan] of mod.skeleton) {
+        tbody.innerHTML = "";
+        renderEmpty(tbody, colspan, "Couldn't load - see the message above.");
+      }
     }
   }
+}
+
+// Re-rendering a table replaces every row, so the scroll position of the page
+// and of any horizontally scrolled table is lost. The month sheet is twenty
+// columns wide and usually scrolled both ways, which made an automatic refresh
+// feel like being thrown back to the start.
+function capturePositions() {
+  return {
+    page: window.scrollY,
+    wraps: [...document.querySelectorAll(".table-wrap")].map((el) => [el, el.scrollLeft, el.scrollTop]),
+  };
+}
+
+function restorePositions(saved) {
+  for (const [el, left, top] of saved.wraps) {
+    el.scrollLeft = left;
+    el.scrollTop = top;
+  }
+  window.scrollTo({ top: saved.page });
 }
 
 // Mark tabs stale so they reload next time they're opened; reload the active
@@ -3195,7 +3229,9 @@ async function recalculate({ auto = false } = {}) {
     // destroys.
     if (succeeded) {
       loaded.clear();
-      if (!isMidEntry()) await loadTab(activeTab, true);
+      // Quiet: this refresh follows a rebuild the user did not ask for, so it
+      // must not blank the table they are reading.
+      if (!isMidEntry()) await loadTab(activeTab, true, { quiet: auto });
     }
   } catch (err) {
     console.error(err);
