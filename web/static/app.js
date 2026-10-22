@@ -401,7 +401,9 @@ periodSelect.addEventListener("change", invalidateAll);
 
 refreshBtn.addEventListener("click", syncOrders);
 refreshFeesBtn.addEventListener("click", syncSettlement);
-recalcBtns.forEach((btn) => btn.addEventListener("click", recalculate));
+// Wrapped, not passed directly: the handler would otherwise hand the click
+// Event in as the options argument.
+recalcBtns.forEach((btn) => btn.addEventListener("click", () => recalculate()));
 
 // Label the tab before it is ever opened, so the nav reads "October 2026"
 // rather than a placeholder on first paint.
@@ -2175,8 +2177,8 @@ async function loadDrawerCost(row) {
   const note = document.createElement("p");
   note.className = "note drawer-note";
   note.textContent = existing
-    ? `From ${existing.source || "unknown"} (${existing.basis}). Correct it here; `
-      + "the figures only move once you Recalculate."
+    ? `From ${existing.source || "unknown"} (${existing.basis}). Correct it here `
+      + "and your profit figures update a moment later."
     : "Nothing has been recorded for this line. Entering a cost here is the same "
       + "as costing it from the New Orders queue.";
   drawerCost.appendChild(note);
@@ -2283,8 +2285,7 @@ async function saveDrawerCost(row, inputs, errEl, button) {
     }, { onConflict: "store_id,source_id" });
     if (error) throw error;
 
-    unpostedCosts += 1;
-    updateRecalcHint();
+    scheduleRecalculate();
     closeDrawer();
     await invalidate("new-orders", "month");
   } catch (e) {
@@ -2305,10 +2306,9 @@ async function removeLineCost(row, errEl, button) {
       .eq("store_id", row.store_id).eq("source_id", row.source_id);
     if (error) throw error;
 
-    // Deleting does not unpost anything. Whatever the ledger already built from
-    // this cost stays until a rebuild, so the pending hint applies here too.
-    unpostedCosts += 1;
-    updateRecalcHint();
+    // Deleting leaves the ledger holding figures built from a cost that no
+    // longer exists, so a removal needs a rebuild every bit as much as a save.
+    scheduleRecalculate();
     closeDrawer();
     await invalidate("new-orders", "month");
   } catch (e) {
@@ -3029,15 +3029,10 @@ async function saveLineCost(row, inputs, button) {
     });
     if (error) throw error;
 
-    // The line now has a cost row, so it drops out of new_orders. Orders and
-    // the profit views only change after a Recalculate, so they are left alone
-    // rather than reloaded to show the same numbers.
-    //
-    // Which is exactly why the saved count is surfaced: a cost that is stored
-    // but not yet posted looks identical to one that failed to save, and the
-    // explanation was buried in a paragraph above the table.
-    unpostedCosts += 1;
-    updateRecalcHint();
+    // The line now has a cost row, so it drops out of new_orders. The profit
+    // views need a rebuilt ledger before they show anything, which the
+    // scheduler handles once entry stops.
+    scheduleRecalculate();
     await invalidate("new-orders");
   } catch (err) {
     console.error(err);
@@ -3063,24 +3058,66 @@ let unpostedCosts = 0;
 function updateRecalcHint() {
   const text = unpostedCosts === 0
     ? ""
-    : `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved - not in your profit figures yet`;
+    : `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved - updating your figures...`;
   recalcHints.forEach((hint) => {
     hint.hidden = unpostedCosts === 0;
     hint.textContent = text;
   });
 }
 
-// Reposting is a separate, explicit step. Saving a cost is cheap; rebuilding the
-// ledger walks every order, purchase and settlement row for the store, so doing
-// it per save would make a ten-line data-entry pass ten full rebuilds.
-async function recalculate() {
+// A saved cost rebuilds the ledger on its own. It used to be a manual step on
+// the theory that a rebuild is expensive, but on real data it takes seconds,
+// and the cost of forgetting was far worse: the line left the queue, nothing
+// appeared on the sheet, and every visible signal said the save had worked
+// while the figures stayed stale for a day.
+//
+// Debounced, because the expense is real enough that ten lines entered in a row
+// should cause one rebuild rather than ten.
+const RECALC_DEBOUNCE_MS = 2000;
+let recalcTimer = null;
+let recalcInFlight = false;
+
+function scheduleRecalculate() {
+  unpostedCosts += 1;
+  updateRecalcHint();
+  if (recalcTimer) clearTimeout(recalcTimer);
+  recalcTimer = setTimeout(() => {
+    recalcTimer = null;
+    // A rebuild already running would otherwise be raced. Wait and retry
+    // rather than starting a second one on top of it.
+    if (recalcInFlight) {
+      recalcTimer = setTimeout(() => { recalcTimer = null; scheduleRecalculate(); }, 500);
+      return;
+    }
+    recalculate({ auto: true });
+  }, RECALC_DEBOUNCE_MS);
+}
+
+// Re-rendering the New Orders tab mid-entry would wipe a half-typed row, which
+// is the same bug a token refresh used to cause. The rebuild cannot change which
+// lines are uncosted anyway -- it writes no cost rows -- so that tab has nothing
+// to learn from it and is left alone while the user is still typing.
+function isMidEntry() {
+  if (activeTab !== "new-orders") return false;
+  const inputs = document.querySelectorAll("#tab-new-orders input");
+  for (const input of inputs) {
+    if (input.value.trim() !== "" || document.activeElement === input) return true;
+  }
+  return false;
+}
+
+async function recalculate({ auto = false } = {}) {
   const storeId = requireStore();
   if (!storeId) return;
-  clearError();
+  if (!auto) clearError();
   // Disable every copy, not just the one clicked. Leaving the other enabled
   // would let a second rebuild start on top of the first.
   recalcBtns.forEach((btn) => { btn.disabled = true; });
-  setSyncStatus("Recalculating the ledger...", "busy");
+  recalcInFlight = true;
+  // Counted at the start, not the end. A cost saved while this runs is NOT in
+  // the rebuild, so clearing the whole counter afterwards would bury it.
+  const covered = unpostedCosts;
+  setSyncStatus(auto ? "Updating your figures..." : "Recalculating the ledger...", "busy");
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) {
@@ -3105,17 +3142,25 @@ async function recalculate() {
       setSyncStatus("Recalculated with warnings", "warn");
       showError("The ledger rebuild reported a problem:\n\n" + (payload.output || "No details returned."));
     } else {
-      setSyncStatus("Ledger up to date", "ok");
-      unpostedCosts = 0;
+      setSyncStatus(auto ? "Figures up to date" : "Ledger up to date", "ok");
+      unpostedCosts = Math.max(0, unpostedCosts - covered);
       updateRecalcHint();
     }
-    await invalidateAll();
+    // Every tab's numbers just changed, so drop all of them; loadTab only
+    // re-renders the one on screen, and not that one if a row is half typed.
+    loaded.clear();
+    if (!isMidEntry()) await loadTab(activeTab, true);
   } catch (err) {
     console.error(err);
     setSyncStatus("", null);
     showError(`Recalculation request failed: ${err.message || err}`);
   } finally {
+    recalcInFlight = false;
     recalcBtns.forEach((btn) => { btn.disabled = false; });
+    // Saved while the rebuild was running, so those costs still need one.
+    if (unpostedCosts > 0 && !recalcTimer) {
+      recalcTimer = setTimeout(() => { recalcTimer = null; recalculate({ auto: true }); }, RECALC_DEBOUNCE_MS);
+    }
   }
 }
 
