@@ -2493,8 +2493,8 @@ function monthStatusClass(status) {
 const STATUS_TONE = {
   "status-delivered": "green",
   "status-shipped": "blue",
-  "status-acknowledged": "amber",
-  "status-created": "amber",
+  "status-acknowledged": "orange",
+  "status-created": "orange",
   "status-cancelled": "red",
 };
 
@@ -2524,7 +2524,10 @@ function statusBadgeEl(status) {
 // notation used on the summary stats.
 function monthlySheetRow(row) {
   const posted = row.counts_in_profit;
-  const money = (v, cls) => (posted ? { money: v, cls } : { text: "\u2014", cls });
+  // Only the absent figures are muted. The date, SKU, product and order number
+  // are real data and stay full strength -- fading the whole row made it look
+  // like the whole line was doubtful, when only the money is missing.
+  const money = (v, cls) => (posted ? { money: v, cls } : { text: "\u2014", cls: "muted" });
   const photo = { text: "", cls: "col-photo" };
 
   const tr = renderRow([
@@ -2549,7 +2552,7 @@ function monthlySheetRow(row) {
       text: !posted || row.roi_pct === null || row.roi_pct === undefined
         ? (posted ? "" : "\u2014")
         : `${fmtNum(row.roi_pct)}%`,
-      cls: posted ? signClass(row.roi_pct) : "",
+      cls: posted ? signClass(row.roi_pct) : "muted",
     },
     { badge: statusBadgeSpec(row.order_status) },
     { text: "", cls: "col-tracking" },

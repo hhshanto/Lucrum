@@ -860,10 +860,12 @@ h4.drawer-section {
 /* Lines with nothing posted yet: real orders, no money against them. Muted so
    the eye goes to the lines that actually carry figures, but still present,
    because they are this month's work. */
-#monthly-sheet-table tr.row-pending td {
-  color: var(--text-subtle, #94a3b8);
-  font-style: italic;
-}
+/* Deliberately no colour or italic here. An earlier version faded the entire
+   row, which greyed the date, SKU and product -- all real, known data -- and
+   over a status tint the result read as muddy rather than quiet. The tint says
+   what state the line is in and the em dashes say which figures are missing;
+   restating it a third time in the text cost legibility and gained nothing.
+   The dash cells carry .muted individually instead. */
 
 /* ---------- Spreadsheet grid ---------- */
 
@@ -906,8 +908,10 @@ h4.drawer-section {
    mistake as the near-white dotted leader. */
 #monthly-sheet-table tbody tr.status-delivered td    { background: #dcfce7; }
 #monthly-sheet-table tbody tr.status-shipped td      { background: #dbeafe; }
-#monthly-sheet-table tbody tr.status-acknowledged td { background: #fef3c7; }
-#monthly-sheet-table tbody tr.status-created td      { background: #fef3c7; }
+/* orange-100, not amber-100. Amber is noticeably more saturated than the other
+   three and read as a highlighter stripe beside them. */
+#monthly-sheet-table tbody tr.status-acknowledged td { background: #ffedd5; }
+#monthly-sheet-table tbody tr.status-created td      { background: #ffedd5; }
 #monthly-sheet-table tbody tr.status-cancelled td    { background: #fee2e2; }
 
 /* Hover has to be td-level for the same reason, and must outrank the tints so
@@ -1077,11 +1081,19 @@ h4.drawer-section {
   color: #b91c1c;
 }
 
-/* Shipped. The other three status tones already existed and their backgrounds
-   happen to be exactly the row tints, so a pill and its row read as one thing. */
+/* Shipped and Acknowledged. Each matches its row tint exactly, so a pill and
+   the row it sits in read as one thing.
+   Acknowledged gets its own tone rather than reusing badge-amber: amber is
+   already carrying a different meaning on the confidence badges and the team
+   roles, and it is too saturated to sit beside the other three statuses. */
 .badge-blue {
   background: #dbeafe;
   color: #1d4ed8;
+}
+
+.badge-orange {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 /* ---------- Cost import/export + missing-cost flags ---------- */
