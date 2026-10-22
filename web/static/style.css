@@ -309,6 +309,7 @@ button:active {
 .sync-busy { color: var(--primary); }
 .sync-ok   { color: #16a34a; }
 .sync-warn { color: #b45309; }
+.sync-err  { color: #b91c1c; font-weight: 600; }
 
 /* ---------- Banner ---------- */
 

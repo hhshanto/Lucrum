@@ -3074,12 +3074,16 @@ async function saveLineCost(row, inputs, button) {
 let unpostedCosts = 0;
 
 function updateRecalcHint() {
+  const plural = `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved`;
   const text = unpostedCosts === 0
     ? ""
-    : `${unpostedCosts} cost${unpostedCosts === 1 ? "" : "s"} saved - updating your figures...`;
+    : autoRecalcSuspended
+      ? `${plural} - couldn't update automatically, press Recalculate`
+      : `${plural} - updating your figures...`;
   recalcHints.forEach((hint) => {
     hint.hidden = unpostedCosts === 0;
     hint.textContent = text;
+    hint.classList.toggle("sync-err", autoRecalcSuspended);
   });
 }
 
@@ -3094,10 +3098,17 @@ function updateRecalcHint() {
 const RECALC_DEBOUNCE_MS = 2000;
 let recalcTimer = null;
 let recalcInFlight = false;
+// An automatic rebuild that failed will fail again for the same reason a second
+// later. Retrying on a timer turns one broken server into an endless reload
+// loop -- and because every reload clears the error banner, the cause of it
+// never stays on screen long enough to read. One attempt, then hand back to the
+// button and say so.
+let autoRecalcSuspended = false;
 
 function scheduleRecalculate() {
   unpostedCosts += 1;
   updateRecalcHint();
+  if (autoRecalcSuspended) return;
   if (recalcTimer) clearTimeout(recalcTimer);
   recalcTimer = setTimeout(() => {
     recalcTimer = null;
@@ -3127,11 +3138,17 @@ function isMidEntry() {
 async function recalculate({ auto = false } = {}) {
   const storeId = requireStore();
   if (!storeId) return;
-  if (!auto) clearError();
+  // Pressing the button by hand is a fresh start: it clears both the stale
+  // error and the suspension an earlier automatic attempt left behind.
+  if (!auto) {
+    clearError();
+    autoRecalcSuspended = false;
+  }
   // Disable every copy, not just the one clicked. Leaving the other enabled
   // would let a second rebuild start on top of the first.
   recalcBtns.forEach((btn) => { btn.disabled = true; });
   recalcInFlight = true;
+  let succeeded = false;
   // Counted at the start, not the end. A cost saved while this runs is NOT in
   // the rebuild, so clearing the whole counter afterwards would bury it.
   const covered = unpostedCosts;
@@ -3155,7 +3172,13 @@ async function recalculate({ auto = false } = {}) {
     }
     if (!resp.ok) {
       setSyncStatus("", null);
-      showError(payload.detail || `Recalculation failed (HTTP ${resp.status}).`);
+      // A 404 means the route is missing, not that the rebuild went wrong: the
+      // running server predates this endpoint. Saying "recalculation failed"
+      // would send the reader looking at their data instead of their server.
+      showError(resp.status === 404
+        ? "The server doesn't have the /post endpoint, so your figures can't be "
+          + "rebuilt. It's running an older version of the app - restart it."
+        : (payload.detail || `Recalculation failed (HTTP ${resp.status}).`));
     } else if (!payload.ok) {
       setSyncStatus("Recalculated with warnings", "warn");
       showError("The ledger rebuild reported a problem:\n\n" + (payload.output || "No details returned."));
@@ -3163,11 +3186,17 @@ async function recalculate({ auto = false } = {}) {
       setSyncStatus(auto ? "Figures up to date" : "Ledger up to date", "ok");
       unpostedCosts = Math.max(0, unpostedCosts - covered);
       updateRecalcHint();
+      succeeded = true;
     }
-    // Every tab's numbers just changed, so drop all of them; loadTab only
-    // re-renders the one on screen, and not that one if a row is half typed.
-    loaded.clear();
-    if (!isMidEntry()) await loadTab(activeTab, true);
+
+    // Only a successful rebuild changed any numbers. Reloading after a failure
+    // re-renders the same stale figures AND wipes the error banner on the way
+    // through loadTab, so the one useful thing on screen is the thing it
+    // destroys.
+    if (succeeded) {
+      loaded.clear();
+      if (!isMidEntry()) await loadTab(activeTab, true);
+    }
   } catch (err) {
     console.error(err);
     setSyncStatus("", null);
@@ -3175,8 +3204,13 @@ async function recalculate({ auto = false } = {}) {
   } finally {
     recalcInFlight = false;
     recalcBtns.forEach((btn) => { btn.disabled = false; });
-    // Saved while the rebuild was running, so those costs still need one.
-    if (unpostedCosts > 0 && !recalcTimer) {
+    if (!succeeded && auto) {
+      // Stop. The next attempt would hit the same wall and take the error
+      // message down with it.
+      autoRecalcSuspended = true;
+      updateRecalcHint();
+    } else if (unpostedCosts > 0 && !recalcTimer && !autoRecalcSuspended) {
+      // Saved while the rebuild was running, so those costs still need one.
       recalcTimer = setTimeout(() => { recalcTimer = null; recalculate({ auto: true }); }, RECALC_DEBOUNCE_MS);
     }
   }
