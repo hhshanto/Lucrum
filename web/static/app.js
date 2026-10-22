@@ -2771,8 +2771,21 @@ function newOrderRow(row) {
     : "Handling charge for this order.";
   if (Number(row.lines_in_order) > 1) inputs.warehouse_cost.classList.add("warn-input");
 
+  // 0 and blank are different claims, and the distinction survives into the
+  // data: import_costs stores a zero charge as 0 and an unfilled cell as null.
+  // Buying the label elsewhere means Walmart charged nothing -- that is a fact
+  // worth recording, not a gap.
   addInput("label_walmart");
+  inputs.label_walmart.title =
+    "What Walmart charged for the shipping label. Enter 0 if you bought the "
+    + "label elsewhere - 0 records that Walmart charged nothing, whereas leaving "
+    + "it blank records that you do not know.";
+
   addInput("label_third_party");
+  inputs.label_third_party.title =
+    "What you paid a third party for the label. Never appears in Walmart's "
+    + "settlement report, so if you do not enter it here it is invisible to "
+    + "every profit figure in the app.";
 
   const actionCell = document.createElement("td");
   const save = document.createElement("button");
