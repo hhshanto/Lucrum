@@ -1,0 +1,327 @@
+{
+  "$comment": [
+    "Golden test cases for the profit-v1 calculation policy.",
+    "",
+    "PURPOSE: these are the highest-value tests in the project. They are the only",
+    "thing that proves the new system reproduces the numbers the business already",
+    "trusts. Fill the `expected` blocks from your existing spreadsheet BEFORE",
+    "implementing the calculation, so the spreadsheet is the oracle rather than",
+    "the code.",
+    "",
+    "If a real order disagrees with profit-v1, do not adjust the test. Find out",
+    "which one is wrong. That disagreement is the single most valuable signal you",
+    "will get during the rebuild, and it is cheap in week four and expensive in",
+    "month four.",
+    "",
+    "All amounts are decimal strings. Never floats.",
+    "profit-v1: exact decimal arithmetic, one half-up rounding at the end only."
+  ],
+
+  "policy_version": "profit-v1",
+
+  "cases": [
+    {
+      "id": "GP-01",
+      "name": "Straightforward complete order",
+      "note": "Baseline. Every component known, no refunds, single unit.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "estimated_walmart_fee": "7.50",
+        "estimated_walmart_label_cost": "5.20",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "buying_cost_total": "22.00",
+        "total_cost": "36.20",
+        "estimated_profit": "13.79",
+        "estimated_roi": "0.3809",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-02",
+      "name": "Quantity greater than one, warehouse cost applied once",
+      "note": "BR-04 and US-010 AC-03: warehouse is per ORDER, never per unit. A naive implementation multiplies it by quantity. This case catches that.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 3,
+        "selling_amount": "149.97",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "estimated_walmart_fee": "22.50",
+        "estimated_walmart_label_cost": "9.80",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "buying_cost_total": "66.00",
+        "total_cost": "99.80",
+        "estimated_profit": "50.17",
+        "estimated_roi": "0.5027",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-03",
+      "name": "Both label costs present and additive",
+      "note": "Labels are ADDITIVE, not alternatives. Both are summed and no exception is raised.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "80.00",
+        "buying_cost_per_unit": "30.00",
+        "warehouse_cost_effective": "2.00",
+        "estimated_walmart_fee": "12.00",
+        "estimated_walmart_label_cost": "6.00",
+        "third_party_label_cost": "4.25",
+        "other_cost": "1.00"
+      },
+      "expected": {
+        "total_cost": "55.25",
+        "estimated_profit": "24.75",
+        "estimated_roi": "0.4480",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-04",
+      "name": "Unknown component yields incomplete, never zero",
+      "note": "THE most important case. A missing cost must withhold the number and name what is missing. An implementation that coalesces to zero returns a confident wrong profit and will pass almost every other test.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": null,
+        "warehouse_cost_effective": "1.50",
+        "estimated_walmart_fee": "7.50",
+        "estimated_walmart_label_cost": "5.20",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "total_cost": null,
+        "estimated_profit": null,
+        "estimated_roi": null,
+        "completeness": "incomplete",
+        "missing_component_codes": ["buying_cost_per_unit"]
+      }
+    },
+    {
+      "id": "GP-05",
+      "name": "Explicit zero is known and does not break completeness",
+      "note": "US-008 AC-03: a saved zero differs from a blank. This case and GP-04 must not behave the same way.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "30.00",
+        "buying_cost_per_unit": "0.00",
+        "buying_cost_per_unit_is_known_zero": true,
+        "warehouse_cost_effective": "1.00",
+        "estimated_walmart_fee": "4.50",
+        "estimated_walmart_label_cost": "0.00",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "total_cost": "5.50",
+        "estimated_profit": "24.50",
+        "estimated_roi": "4.4545",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-06",
+      "name": "Rounding is applied once, at the end",
+      "note": "Components chosen so that per-step rounding gives a different answer than single final rounding. If your implementation rounds intermediates, this case fails.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 7,
+        "selling_amount": "100.00",
+        "buying_cost_per_unit": "3.335",
+        "warehouse_cost_effective": "1.005",
+        "estimated_walmart_fee": "9.995",
+        "estimated_walmart_label_cost": "2.005",
+        "third_party_label_cost": "0.005",
+        "other_cost": "0.005"
+      },
+      "expected": {
+        "$note": "FILL FROM YOUR OWN DECIMAL IMPLEMENTATION, then freeze. Verify by hand once.",
+        "total_cost": null,
+        "estimated_profit": null,
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-07",
+      "name": "Zero total cost makes ROI unavailable, not infinity",
+      "note": "US-013 AC-03: division by zero must produce Unavailable. Not 0, not null-as-zero, not Infinity, not a crash.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "10.00",
+        "buying_cost_per_unit": "0.00",
+        "buying_cost_per_unit_is_known_zero": true,
+        "warehouse_cost_effective": "0.00",
+        "estimated_walmart_fee": "0.00",
+        "estimated_walmart_label_cost": "0.00",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "total_cost": "0.00",
+        "estimated_profit": "10.00",
+        "estimated_roi": "UNAVAILABLE",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-08",
+      "name": "Settled profit with full coverage",
+      "note": "Settled Walmart values replace estimated ones. Manual costs are unchanged.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00",
+        "settlement_entries": [
+          {
+            "settled_revenue_amount": "49.99",
+            "settled_walmart_fee": "8.10",
+            "settled_walmart_label_cost": "5.44",
+            "settled_other_amount": "0.00"
+          }
+        ],
+        "coverage_code": "complete"
+      },
+      "expected": {
+        "settled_profit": "12.95",
+        "variance": "-0.84",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-09",
+      "name": "Refund without recorded recovery is incomplete",
+      "note": "refund-v1: buying cost is net of a MANUALLY recorded recovery. Until it is recorded the figure is withheld. An implementation assuming zero recovery returns a wrong, confident loss.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00",
+        "settlement_entries": [
+          { "settled_revenue_amount": "49.99", "settled_walmart_fee": "8.10", "settled_walmart_label_cost": "5.44" },
+          { "settled_revenue_amount": "-49.99", "is_refund": true, "settled_walmart_fee": "-8.10" }
+        ],
+        "refund_cost_recoveries": [],
+        "coverage_code": "complete"
+      },
+      "expected": {
+        "settled_profit": null,
+        "completeness": "incomplete",
+        "incomplete_reason_codes": ["refund_recovery_unknown"]
+      }
+    },
+    {
+      "id": "GP-10",
+      "name": "Refund with recorded partial recovery",
+      "note": "Recovery of 18.00 against a buying cost of 22.00 leaves 4.00 of unrecovered product cost.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00",
+        "settlement_entries": [
+          { "settled_revenue_amount": "49.99", "settled_walmart_fee": "8.10", "settled_walmart_label_cost": "5.44" },
+          { "settled_revenue_amount": "-49.99", "is_refund": true, "settled_walmart_fee": "-8.10" }
+        ],
+        "refund_cost_recoveries": [{ "recovered_amount": "18.00" }],
+        "coverage_code": "complete"
+      },
+      "expected": {
+        "settled_revenue": "0.00",
+        "effective_buying_cost": "4.00",
+        "settled_profit": "-10.94",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-11",
+      "name": "Cancelled order has zero revenue and keeps incurred costs",
+      "note": "refund-v1: a cancellation that cost money is a real loss and must appear as one. The imported selling amount does not contribute because Walmart never pays it.",
+      "input": {
+        "currency_code": "USD",
+        "fulfillment_status_code": "cancelled",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "0.00",
+        "buying_cost_per_unit_is_known_zero": true,
+        "warehouse_cost_effective": "1.50",
+        "estimated_walmart_fee": "0.00",
+        "estimated_walmart_label_cost": "5.20",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00"
+      },
+      "expected": {
+        "revenue_used": "0.00",
+        "total_cost": "6.70",
+        "estimated_profit": "-6.70",
+        "completeness": "complete"
+      }
+    },
+    {
+      "id": "GP-12",
+      "name": "Partial coverage yields settled-to-date, never final",
+      "note": "settlement-v1: partial coverage must be labelled and must never be presented as a final settled profit.",
+      "input": {
+        "currency_code": "USD",
+        "quantity": 1,
+        "selling_amount": "49.99",
+        "buying_cost_per_unit": "22.00",
+        "warehouse_cost_effective": "1.50",
+        "third_party_label_cost": "0.00",
+        "other_cost": "0.00",
+        "settlement_entries": [
+          { "settled_revenue_amount": "25.00", "settled_walmart_fee": "4.00" }
+        ],
+        "coverage_code": "partial"
+      },
+      "expected": {
+        "label": "settled_to_date",
+        "settled_profit": null,
+        "completeness": "incomplete"
+      }
+    }
+  ],
+
+  "real_order_cases": {
+    "$comment": [
+      "ADD AT LEAST 20 REAL ORDERS FROM YOUR SPREADSHEET HERE before shipping",
+      "the costing slice. Pick a deliberate spread:",
+      "  - a few ordinary orders",
+      "  - at least one multi-quantity order",
+      "  - at least one with both label types",
+      "  - at least one refunded order",
+      "  - at least one cancelled order",
+      "  - the order with the largest profit and the one with the largest loss",
+      "  - any order whose number you have ever argued about",
+      "",
+      "If profit-v1 cannot reproduce these, the rebuild has a problem worth",
+      "finding now rather than after the close workflow is built on top of it."
+    ],
+    "cases": []
+  }
+}

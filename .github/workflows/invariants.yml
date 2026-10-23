@@ -1,0 +1,148 @@
+name: invariants
+
+# The specification states roughly thirty rules, most of them prohibitions,
+# and every one is more convenient to violate than to follow. This workflow is
+# the part that cannot be talked out of enforcing them.
+#
+# See docs/guardrails/INVARIANTS.md for the register.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static-scan:
+    name: Static invariant scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Runs even before src/ exists, so the guardrail is in place from the
+      # first line of application code rather than retrofitted later.
+      - name: Scan source for prohibited patterns
+        run: |
+          if [ -d src ]; then
+            python docs/guardrails/check_invariants.py src
+          else
+            echo "src/ does not exist yet - verifying the scanner itself instead"
+            python docs/guardrails/check_invariants.py --list
+          fi
+
+      # A guardrail nobody has watched fail is a guardrail nobody should trust.
+      - name: Prove the scanner still catches violations
+        run: |
+          set +e
+          python docs/guardrails/check_invariants.py docs/guardrails/_selftest/src/bad.py >/dev/null 2>&1
+          bad=$?
+          python docs/guardrails/check_invariants.py docs/guardrails/_selftest/src/good.py >/dev/null 2>&1
+          good=$?
+          set -e
+          if [ "$bad" -ne 1 ]; then
+            echo "FAIL: the violating fixture was not detected. The scanner is broken."
+            exit 1
+          fi
+          if [ "$good" -ne 0 ]; then
+            echo "FAIL: the clean fixture was flagged. The scanner has false positives."
+            exit 1
+          fi
+          echo "Scanner verified: catches violations, passes clean code."
+
+  schema:
+    name: Schema invariants
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lucrum_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucrum_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Skip until migrations exist
+        id: gate
+        run: |
+          if [ -d src/db/migrations ] && [ -n "$(ls -A src/db/migrations 2>/dev/null)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No migrations yet - schema checks will activate with slice 0."
+          fi
+
+      - name: Apply migrations
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          for f in src/db/migrations/*.sql; do
+            echo "applying $f"
+            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"
+          done
+
+      # Row-level enforcement: these make violations fail at write time.
+      - name: Apply invariant constraints
+        if: steps.gate.outputs.run == 'true'
+        run: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f docs/guardrails/sql/001_invariants.sql
+
+      # Schema-level assertions: float money, defaulted currencies, a generated
+      # posting period, a forbidden table, a globally unique order id.
+      - name: Schema self-test
+        if: steps.gate.outputs.run == 'true'
+        run: psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f docs/guardrails/sql/002_selftest.sql
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lucrum_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucrum_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "No requirements.txt yet."
+          fi
+
+      - name: pytest
+        run: |
+          if [ -d tests ] && [ -n "$(ls -A tests 2>/dev/null)" ]; then
+            pytest -q
+          else
+            echo "No tests yet - this gate activates with slice 0."
+          fi
