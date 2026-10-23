@@ -2,13 +2,13 @@
 
 Volatile session state. **Update this at the end of every session.**
 
-Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business rule — if you find one here, it is in the wrong place.
+Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business rule â€” if you find one here, it is in the wrong place.
 
 ---
 
 ## Current position
 
-**Slice 0 — walking skeleton. Not started.**
+**Slice 0 â€” walking skeleton. Not started.**
 
 Nothing of the application exists yet. `src/` has not been created.
 
@@ -16,7 +16,7 @@ Nothing of the application exists yet. `src/` has not been created.
 
 Slice 0, in order:
 
-1. `src/` skeleton — FastAPI app, one route, one table, `psycopg` connection
+1. `src/` skeleton â€” FastAPI app, one route, one table, `psycopg` connection
 2. Migration runner for plain `.sql` files in `src/db/migrations/`
 3. The cross-cutting spine, all of it before any feature:
    - `Decimal` money type convention, floats banned
@@ -34,14 +34,14 @@ Slice 0 is done when a deployed route returns real data from a migrated database
 
 | Slice | Stories | Status |
 |---|---|---|
-| 0 Skeleton | — | not started |
-| 1 Access and stores | US-001…004 | not started |
-| 2 Orders | US-005…007 | not started |
-| 3 Costing and estimates | US-008…014, US-030 | not started |
-| 4 Settlement evidence | US-015…017 | not started |
-| 5 Reconciliation | US-018…021, US-031 | not started |
-| 6 Month close | US-022…025 | not started |
-| 7 Reports | US-026…028 | not started |
+| 0 Skeleton | â€” | not started |
+| 1 Access and stores | US-001â€¦004 | not started |
+| 2 Orders | US-005â€¦007 | not started |
+| 3 Costing and estimates | US-008â€¦014, US-030 | not started |
+| 4 Settlement evidence | US-015â€¦017 | not started |
+| 5 Reconciliation | US-018â€¦021, US-031 | not started |
+| 6 Month close | US-022â€¦025 | not started |
+| 7 Reports | US-026â€¦028 | not started |
 | 8 Overview | US-033 | not started |
 
 Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
@@ -50,13 +50,30 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 
 | # | Blocker | Blocks | Owner |
 |---|---|---|---|
-| B-1 | `guardrails/golden/profit_v1_cases.json` has **0 of 20** real orders. Source workbooks are the Swiftzar `.xlsx` at repo root | Slice 3 cannot be verified | **You** — no code needed, do this early |
+| ~~B-1~~ | ~~Golden orders~~ | â€” | **Closed 2026-10-23.** 20 real cases loaded and verified |
 | B-2 | C-01 settlement category mappings empty | Slice 4 commit | `walmart-probe` against the live store |
 | B-3 | C-02 supported report catalogue empty | Slice 2 import, slice 4 | `walmart-probe` |
-| B-4 | No Postgres instance provisioned | Slice 0 | **You** — pick Neon, Railway or RDS |
+| B-4 | No Postgres instance provisioned | Slice 0 | **You** â€” pick Neon, Railway or RDS |
 | B-5 | No deployment target chosen | Slice 0 "deployed" criterion | **You** |
+| B-6 | No refunded order in the golden set. The refund and cost-recovery path is covered only by synthetic fixtures | Slice 5 real-data confidence | **You** â€” add 1â€“2 refunded orders to the workbook |
 
-B-1 and B-4 are on the critical path. B-2 and B-3 run in parallel and should start now.
+B-4 is the critical path. B-2 and B-3 run in parallel and should start now.
+
+## What the golden orders proved
+
+Twenty real orders were loaded on 2026-10-23 and `profit-v1` was checked against them:
+
+| Rule | Result |
+|---|---|
+| Cost formula and profit | Reproduces 19 of 20 **exactly** |
+| ROI = profit Ã· total cost | Matches the workbook's "Margin" column |
+| Warehouse charged once per order | Confirmed at quantity 1, 2, 3 and 5 â€” flat 1.50 throughout |
+| Unit price Ã— quantity = total | All 20 |
+
+Two things came out of it that changed the specification:
+
+- **GR-06 found a real error in the business workbook.** A cancelled order omits the 1.50 warehouse charge it actually incurred, so that loss is understated. The golden case records the corrected âˆ’9.20 and says so, to stop anyone "fixing" the test back.
+- **Estimate precision was wrong in `profit-v1`.** Estimated fees carry more than 2 decimals (4.095, 5.1152); rounding them to 2 dp before summing shifted two of twenty orders by a cent. `profit-v1` now stores estimates at 4 dp and settled amounts at 2 dp.
 
 ## Decisions log
 
@@ -66,7 +83,8 @@ Append here when something is settled that is not a business rule. Business rule
 |---|---|
 | 2026-10-23 | Stack: Python 3.12, FastAPI, Jinja + htmx, plain managed PostgreSQL, raw SQL migrations, pytest |
 | 2026-10-23 | Layout: app in `src/`, spec in `docs/`, previous build in untracked `old_pro/` |
-| 2026-10-23 | All decision gates D-01…D-10 closed; recorded as seven versioned policies |
+| 2026-10-23 | profit-v1 amended: estimates stored at 4dp, settled amounts at 2dp. Verified against 20 real orders. |
+| 2026-10-23 | All decision gates D-01â€¦D-10 closed; recorded as seven versioned policies |
 
 ## Session log
 
@@ -74,4 +92,5 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-23 | Golden orders loaded: 20 real cases, profit-v1 verified against them. Found a workbook error (GR-06) and corrected estimate precision to 4dp. |
 | 2026-10-23 | Specification completed and all gates closed. Guardrail layer built and verified. Agent roster created. Slice plan written. Previous build moved to `old_pro/` and untracked. Stack decided. |

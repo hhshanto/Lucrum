@@ -324,11 +324,24 @@ Expressed as a percentage, using the same basis as the profit figure it accompan
 
 ### Rounding and precision
 
-- Monetary inputs are stored at 2 decimal places.
+Storage precision depends on whether a figure is an **estimate** or **money that actually moved**:
+
+| Kind | Precision | Why |
+|---|---|---|
+| Estimated components — `estimated_walmart_fee`, `estimated_walmart_label_cost`, `estimated_other_marketplace_cost` | **4 dp** | Derived figures. A Walmart referral estimate of 15% on $27.30 is exactly 4.095; forcing it to 4.10 discards real information before any arithmetic happens |
+| Manually entered costs — buying, warehouse, third-party label, other | 2 dp | A price someone paid |
+| Settled values — every `settled_*` amount | **2 dp** | Money that actually moved. Storing an actual charge at 4 dp invents precision that does not exist |
+| Computed results — profit, total cost, variance | 2 dp | Final answers |
+| ROI | 4 dp | A ratio, not an amount |
+
+Rules:
+
 - All intermediate arithmetic is performed in exact decimal at full precision. **No intermediate rounding.**
-- A single half-up rounding to 2 decimal places is applied once, to the final result.
-- ROI is computed from unrounded profit and unrounded total cost, then rounded half-up to 2 decimal places of percent.
+- A single half-up rounding is applied once, to the final result.
+- ROI is computed from unrounded profit and unrounded total cost.
 - Binary floating point is prohibited for monetary arithmetic anywhere in the system.
+
+**Why the split is not pedantry.** Rounding an estimate to 2 dp before summing changes the profit on roughly one order in ten by a cent. Two cents across twenty orders is nothing; across a year and a close snapshot it is a permanent divergence from the books the business already keeps, and "why does this not match my spreadsheet" is the question that destroys trust in a replacement system. Verified against twenty real orders: at 4 dp the estimates reproduce the existing spreadsheet exactly, and at 2 dp two of them drift.
 
 ### Unknown versus zero
 

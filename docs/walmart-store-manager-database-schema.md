@@ -644,9 +644,9 @@ Stores immutable estimate snapshots. This is better than a single mutable estima
 | order_id | uuid fk -> orders.id | Order |
 | version_no | integer | 1, 2, 3... |
 | currency_code | char(3) | Currency of all amounts in this row |
-| estimated_walmart_fee | numeric(12,2) nullable | Estimate; null means unknown |
-| estimated_walmart_label_cost | numeric(12,2) nullable | Estimate; null means unknown |
-| estimated_other_marketplace_cost | numeric(12,2) nullable | Optional |
+| estimated_walmart_fee | numeric(12,4) nullable | Estimate at 4dp (`profit-v1`); null means unknown |
+| estimated_walmart_label_cost | numeric(12,4) nullable | Estimate at 4dp (`profit-v1`); null means unknown |
+| estimated_other_marketplace_cost | numeric(12,4) nullable | Estimate at 4dp; optional |
 | estimated_total_cost | numeric(12,2) nullable | Sum of the six cost components; null when inputs are incomplete |
 | estimated_net_profit | numeric(12,2) nullable | `selling_amount - estimated_total_cost`; null when inputs are incomplete |
 | estimated_roi | numeric(9,4) nullable | `estimated_net_profit / estimated_total_cost`; null when total cost is zero or inputs are incomplete |
@@ -676,10 +676,19 @@ Rules:
 
 Precision rules, binding on every implementation:
 
-- Stored monetary values are `numeric(12,2)`.
+| Kind | Type |
+|---|---|
+| Estimated fee and label components | `numeric(12,4)` |
+| Manually entered costs — buying, warehouse, third-party label, other | `numeric(12,2)` |
+| Every `settled_*` amount | `numeric(12,2)` |
+| Computed results — profit, total cost, variance | `numeric(12,2)` |
+| ROI | `numeric(9,4)` |
+
 - Intermediate arithmetic uses exact decimal at full precision — PostgreSQL `numeric` without a scale, or an equivalent decimal type. **Binary floating point is prohibited.**
-- Exactly one half-up rounding to 2 decimal places is applied, to the final stored result.
-- ROI is derived from unrounded profit and unrounded total cost, stored at `numeric(9,4)`.
+- Exactly one half-up rounding is applied, to the final stored result.
+- ROI is derived from unrounded profit and unrounded total cost.
+
+The 4 dp on estimates is deliberate and verified: a 15% referral estimate on $27.30 is exactly 4.095, and rounding it to 4.10 before summing shifts the profit by a cent. Against twenty real orders that happens twice. Settled amounts stay at 2 dp because they are money that actually moved, and 4 dp there would be invented precision.
 
 Changing the formula means issuing `profit-v2` and recomputing forward. It never rewrites rows stamped `profit-v1`, and it never alters a `month_close_snapshots` row.
 

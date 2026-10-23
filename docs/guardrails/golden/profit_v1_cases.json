@@ -16,9 +16,7 @@
     "All amounts are decimal strings. Never floats.",
     "profit-v1: exact decimal arithmetic, one half-up rounding at the end only."
   ],
-
   "policy_version": "profit-v1",
-
   "cases": [
     {
       "id": "GP-01",
@@ -108,7 +106,9 @@
         "estimated_profit": null,
         "estimated_roi": null,
         "completeness": "incomplete",
-        "missing_component_codes": ["buying_cost_per_unit"]
+        "missing_component_codes": [
+          "buying_cost_per_unit"
+        ]
       }
     },
     {
@@ -220,8 +220,16 @@
         "third_party_label_cost": "0.00",
         "other_cost": "0.00",
         "settlement_entries": [
-          { "settled_revenue_amount": "49.99", "settled_walmart_fee": "8.10", "settled_walmart_label_cost": "5.44" },
-          { "settled_revenue_amount": "-49.99", "is_refund": true, "settled_walmart_fee": "-8.10" }
+          {
+            "settled_revenue_amount": "49.99",
+            "settled_walmart_fee": "8.10",
+            "settled_walmart_label_cost": "5.44"
+          },
+          {
+            "settled_revenue_amount": "-49.99",
+            "is_refund": true,
+            "settled_walmart_fee": "-8.10"
+          }
         ],
         "refund_cost_recoveries": [],
         "coverage_code": "complete"
@@ -229,7 +237,9 @@
       "expected": {
         "settled_profit": null,
         "completeness": "incomplete",
-        "incomplete_reason_codes": ["refund_recovery_unknown"]
+        "incomplete_reason_codes": [
+          "refund_recovery_unknown"
+        ]
       }
     },
     {
@@ -245,10 +255,22 @@
         "third_party_label_cost": "0.00",
         "other_cost": "0.00",
         "settlement_entries": [
-          { "settled_revenue_amount": "49.99", "settled_walmart_fee": "8.10", "settled_walmart_label_cost": "5.44" },
-          { "settled_revenue_amount": "-49.99", "is_refund": true, "settled_walmart_fee": "-8.10" }
+          {
+            "settled_revenue_amount": "49.99",
+            "settled_walmart_fee": "8.10",
+            "settled_walmart_label_cost": "5.44"
+          },
+          {
+            "settled_revenue_amount": "-49.99",
+            "is_refund": true,
+            "settled_walmart_fee": "-8.10"
+          }
         ],
-        "refund_cost_recoveries": [{ "recovered_amount": "18.00" }],
+        "refund_cost_recoveries": [
+          {
+            "recovered_amount": "18.00"
+          }
+        ],
         "coverage_code": "complete"
       },
       "expected": {
@@ -295,7 +317,10 @@
         "third_party_label_cost": "0.00",
         "other_cost": "0.00",
         "settlement_entries": [
-          { "settled_revenue_amount": "25.00", "settled_walmart_fee": "4.00" }
+          {
+            "settled_revenue_amount": "25.00",
+            "settled_walmart_fee": "4.00"
+          }
         ],
         "coverage_code": "partial"
       },
@@ -306,22 +331,569 @@
       }
     }
   ],
-
   "real_order_cases": {
     "$comment": [
-      "ADD AT LEAST 20 REAL ORDERS FROM YOUR SPREADSHEET HERE before shipping",
-      "the costing slice. Pick a deliberate spread:",
-      "  - a few ordinary orders",
-      "  - at least one multi-quantity order",
-      "  - at least one with both label types",
-      "  - at least one refunded order",
-      "  - at least one cancelled order",
-      "  - the order with the largest profit and the one with the largest loss",
-      "  - any order whose number you have ever argued about",
+      "Twenty real orders from the business workbook '20 real orders.xlsx'.",
       "",
-      "If profit-v1 cannot reproduce these, the rebuild has a problem worth",
-      "finding now rather than after the close workflow is built on top of it."
+      "These are the oracle. profit-v1 must reproduce every one of them. If the",
+      "code disagrees, find out which side is wrong before changing the test.",
+      "",
+      "Customer names and Walmart order identifiers are deliberately excluded:",
+      "this file is committed to a repository with a remote. order_ref is a",
+      "stable hash and source_row points back to the workbook.",
+      "",
+      "Estimated fees are recorded at 4dp because that is their stored precision",
+      "under profit-v1. Rounding them to 2dp shifts GR-03 and GR-18 by one cent."
     ],
-    "cases": []
+    "source": "20 real orders.xlsx (not committed - contains live customer data)",
+    "verified": "2026-10-23",
+    "cases": [
+      {
+        "id": "GR-01",
+        "source_row": 3,
+        "order_ref": "ORD-813E4296CD",
+        "order_date": "2026-07-03",
+        "sku": "SWIFTZAR111",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "74.88",
+          "buying_cost_per_unit": "58.35",
+          "buying_cost_total": "58.35",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "11.2320",
+          "estimated_walmart_label_cost": "8.0000",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "79.08",
+          "estimated_profit": "-4.20",
+          "estimated_roi": "-0.0531",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-02",
+        "source_row": 4,
+        "order_ref": "ORD-849AC96B80",
+        "order_date": "2026-07-04",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.54",
+          "buying_cost_per_unit": "64.90",
+          "buying_cost_total": "64.90",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8310",
+          "estimated_walmart_label_cost": "7.4800",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "86.71",
+          "estimated_profit": "-1.17",
+          "estimated_roi": "-0.0135",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-03",
+        "source_row": 5,
+        "order_ref": "ORD-85D98DC4F7",
+        "order_date": "2026-07-04",
+        "sku": 754127508214,
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "27.30",
+          "buying_cost_per_unit": "7.99",
+          "buying_cost_total": "7.99",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "4.0950",
+          "estimated_walmart_label_cost": "6.0700",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "19.66",
+          "estimated_profit": "7.65",
+          "estimated_roi": "0.3890",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-04",
+        "source_row": 6,
+        "order_ref": "ORD-42E9B75C12",
+        "order_date": "2026-07-05",
+        "sku": 762005518019,
+        "input": {
+          "currency_code": "USD",
+          "quantity": 5,
+          "selling_amount": "218.80",
+          "buying_cost_per_unit": "20.99",
+          "buying_cost_total": "104.95",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "6.5640",
+          "estimated_walmart_label_cost": "9.2400",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "122.25",
+          "estimated_profit": "96.55",
+          "estimated_roi": "0.7897",
+          "completeness": "complete"
+        },
+        "note": "Quantity 5 with a flat 1.50 warehouse charge. Real-data proof of US-010 AC-03: warehouse is charged once per ORDER, never per unit."
+      },
+      {
+        "id": "GR-05",
+        "source_row": 7,
+        "order_ref": "ORD-B368EBC641",
+        "order_date": "2026-07-05",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.54",
+          "buying_cost_per_unit": "64.90",
+          "buying_cost_total": "64.90",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8310",
+          "estimated_walmart_label_cost": "6.8700",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "86.10",
+          "estimated_profit": "-0.56",
+          "estimated_roi": "-0.0065",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-06",
+        "source_row": 8,
+        "order_ref": "ORD-7CAD6E2076",
+        "order_date": "2026-07-07",
+        "sku": "SWIFTZAR106",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 0,
+          "selling_amount": "0.00",
+          "buying_cost_per_unit": "0.00",
+          "buying_cost_total": "0.00",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "0.0000",
+          "estimated_walmart_label_cost": "7.7000",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true,
+          "fulfillment_status_code": "cancelled"
+        },
+        "expected": {
+          "total_cost": "9.20",
+          "estimated_profit": "-9.20",
+          "estimated_roi": "-1.0000",
+          "completeness": "complete",
+          "revenue_used": "0.00"
+        },
+        "note": "Cancelled order. The source workbook totals this as 7.70, omitting the 1.50 warehouse charge that was actually incurred. The workbook is wrong; refund-v1 keeps incurred costs on a cancellation, so the correct loss is 9.20. Confirmed with the Owner 2026-10-23. Do not 'correct' this back."
+      },
+      {
+        "id": "GR-07",
+        "source_row": 9,
+        "order_ref": "ORD-D56B3098D0",
+        "order_date": "2026-07-08",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "82.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.3855",
+          "estimated_walmart_label_cost": "10.0500",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "87.88",
+          "estimated_profit": "-5.31",
+          "estimated_roi": "-0.0604",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-08",
+        "source_row": 10,
+        "order_ref": "ORD-AA619810F9",
+        "order_date": "2026-07-08",
+        "sku": 779372057362,
+        "input": {
+          "currency_code": "USD",
+          "quantity": 2,
+          "selling_amount": "188.00",
+          "buying_cost_per_unit": "42.32",
+          "buying_cost_total": "84.64",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "14.1000",
+          "estimated_walmart_label_cost": "8.0500",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "108.29",
+          "estimated_profit": "79.71",
+          "estimated_roi": "0.7361",
+          "completeness": "complete"
+        },
+        "note": "Quantity 2 with a flat 1.50 warehouse charge. Real-data proof of US-010 AC-03: warehouse is charged once per ORDER, never per unit."
+      },
+      {
+        "id": "GR-09",
+        "source_row": 11,
+        "order_ref": "ORD-1F7A16A18C",
+        "order_date": "2026-07-09",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "82.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.3855",
+          "estimated_walmart_label_cost": "8.6100",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "86.44",
+          "estimated_profit": "-3.87",
+          "estimated_roi": "-0.0447",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-10",
+        "source_row": 12,
+        "order_ref": "ORD-5BEF01064F",
+        "order_date": "2026-07-09",
+        "sku": "SWIFTZAR106",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "34.32",
+          "buying_cost_per_unit": "15.34",
+          "buying_cost_total": "15.34",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "5.1480",
+          "estimated_walmart_label_cost": "9.3400",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "31.33",
+          "estimated_profit": "2.99",
+          "estimated_roi": "0.0955",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-11",
+        "source_row": 13,
+        "order_ref": "ORD-18B4160828",
+        "order_date": "2026-07-10",
+        "sku": 754127508214,
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "26.29",
+          "buying_cost_per_unit": "7.99",
+          "buying_cost_total": "7.99",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "3.9435",
+          "estimated_walmart_label_cost": "5.8300",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "19.26",
+          "estimated_profit": "7.03",
+          "estimated_roi": "0.3648",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-12",
+        "source_row": 14,
+        "order_ref": "ORD-B6F5FED465",
+        "order_date": "2026-07-10",
+        "sku": "SWIFTZAR117",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "49.88",
+          "buying_cost_per_unit": "30.91",
+          "buying_cost_total": "30.91",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "7.4820",
+          "estimated_walmart_label_cost": "9.4100",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "49.30",
+          "estimated_profit": "0.58",
+          "estimated_roi": "0.0117",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-13",
+        "source_row": 15,
+        "order_ref": "ORD-3EDC7EAFC3",
+        "order_date": "2026-07-10",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 3,
+          "selling_amount": "256.71",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "191.82",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8355",
+          "estimated_walmart_label_cost": "7.4800",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "213.64",
+          "estimated_profit": "43.07",
+          "estimated_roi": "0.2016",
+          "completeness": "complete"
+        },
+        "note": "Quantity 3 with a flat 1.50 warehouse charge. Real-data proof of US-010 AC-03: warehouse is charged once per ORDER, never per unit."
+      },
+      {
+        "id": "GR-14",
+        "source_row": 16,
+        "order_ref": "ORD-BE22EA19F1",
+        "order_date": "2026-07-11",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8355",
+          "estimated_walmart_label_cost": "5.8000",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "84.08",
+          "estimated_profit": "1.49",
+          "estimated_roi": "0.0178",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-15",
+        "source_row": 17,
+        "order_ref": "ORD-A18D11539A",
+        "order_date": "2026-07-11",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8355",
+          "estimated_walmart_label_cost": "6.0700",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "84.35",
+          "estimated_profit": "1.22",
+          "estimated_roi": "0.0145",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-16",
+        "source_row": 18,
+        "order_ref": "ORD-520E40F548",
+        "order_date": "2026-07-11",
+        "sku": "SWIFTZAR108",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "51.99",
+          "buying_cost_per_unit": "30.91",
+          "buying_cost_total": "30.91",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "7.7985",
+          "estimated_walmart_label_cost": "8.2800",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "48.49",
+          "estimated_profit": "3.50",
+          "estimated_roi": "0.0722",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-17",
+        "source_row": 19,
+        "order_ref": "ORD-B251211A9B",
+        "order_date": "2026-07-12",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8355",
+          "estimated_walmart_label_cost": "5.9300",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "84.21",
+          "estimated_profit": "1.36",
+          "estimated_roi": "0.0162",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-18",
+        "source_row": 20,
+        "order_ref": "ORD-BFE5E48441",
+        "order_date": "2026-07-12",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "85.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.8355",
+          "estimated_walmart_label_cost": "5.1152",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "83.39",
+          "estimated_profit": "2.18",
+          "estimated_roi": "0.0261",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-19",
+        "source_row": 21,
+        "order_ref": "ORD-76D294A0EC",
+        "order_date": "2026-07-14",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "84.57",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.6855",
+          "estimated_walmart_label_cost": "5.8300",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "83.96",
+          "estimated_profit": "0.61",
+          "estimated_roi": "0.0073",
+          "completeness": "complete"
+        }
+      },
+      {
+        "id": "GR-20",
+        "source_row": 22,
+        "order_ref": "ORD-B06786B221",
+        "order_date": "2026-07-14",
+        "sku": "SWIFTZAR105",
+        "input": {
+          "currency_code": "USD",
+          "quantity": 1,
+          "selling_amount": "84.76",
+          "buying_cost_per_unit": "63.94",
+          "buying_cost_total": "63.94",
+          "warehouse_cost_effective": "1.50",
+          "estimated_walmart_fee": "12.7140",
+          "estimated_walmart_label_cost": "5.8000",
+          "third_party_label_cost": "0.00",
+          "third_party_label_is_known_zero": true,
+          "other_cost": "0.00",
+          "other_cost_is_known_zero": true
+        },
+        "expected": {
+          "total_cost": "83.95",
+          "estimated_profit": "0.81",
+          "estimated_roi": "0.0096",
+          "completeness": "complete"
+        }
+      }
+    ]
   }
 }
