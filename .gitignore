@@ -13,3 +13,8 @@ analysis/
 
 # Local agent/editor config, not part of the application.
 opencode.jsonc
+
+# The previous implementation, kept on disk for reference only.
+# Superseded by the specification in "new deisgn/". Not part of the rebuild
+# and deliberately untracked -- its history remains in commits up to 6b7f8ee.
+old_pro/
