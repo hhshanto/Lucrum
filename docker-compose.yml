@@ -1,0 +1,50 @@
+# Local development database.
+#
+# Pinned to postgres:16 to match the CI service container in
+# .github/workflows/invariants.yml. A version skew between dev and CI is how
+# a constraint passes locally and fails in the pipeline.
+#
+#   docker compose up -d        start
+#   docker compose down         stop, keeps data
+#   docker compose down -v      stop and wipe the volume
+#   docker compose exec db psql -U lucrum lucrum      open a psql shell
+#
+# No psql installed on the host is fine -- the client ships inside the image.
+
+services:
+  db:
+    image: postgres:16
+    container_name: lucrum-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lucrum
+      POSTGRES_PASSWORD: lucrum
+      POSTGRES_DB: lucrum
+      # Deterministic collation. Ordering differences between machines would
+      # otherwise show up as mysterious test failures on sorted output.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      # Host port is 55432, not 5432.
+      #
+      # Windows reserves dynamic port ranges for Hyper-V/WSL, and on this
+      # machine that range is 5358-5457 -- which swallows 5432 even with
+      # nothing listening on it. Binding fails with a permissions error that
+      # looks like a Docker fault and is not one.
+      #
+      # Check yours with:
+      #   netsh int ipv4 show excludedportrange protocol=tcp
+      #
+      # Moving the host side sidesteps it without admin rights or a reboot.
+      # Inside the container Postgres still listens on 5432, so CI, which runs
+      # on Linux with no such reservation, is unaffected.
+      - "55432:5432"
+    volumes:
+      - lucrum_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lucrum -d lucrum"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lucrum_pgdata:
