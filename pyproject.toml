@@ -1,0 +1,10 @@
+[tool.pytest.ini_options]
+# testpaths keeps collection inside tests/. Without it pytest walks the repo
+# and old_pro/syncer/secrets.py shadows the stdlib `secrets` module, which
+# breaks starlette's import at collection time.
+#
+# This is the previous implementation interfering with the rebuild on its
+# first day, which is the argument for having separated it.
+testpaths = ["tests"]
+norecursedirs = ["old_pro", ".venv", "docs", ".git", "__pycache__"]
+addopts = "-q --strict-markers"

@@ -68,6 +68,9 @@ Enforcement mechanisms:
 | SC-12 | Reconciliation statuses never appear in a fulfillment context | BR-10 interpretation | SCAN |
 | SC-13 | Credentials and MFA secrets are never serialised | `access-v1` | SCAN |
 | SC-14 | Variance classification never gates an automatic confirmation | `settlement-v1` | SCAN |
+| SC-15 | No floating point column type in SQL files | `profit-v1` | SCAN |
+
+SC-04 and SC-15 overlap deliberately. SC-04 carries the SQL type names across **every** file type, because DDL is routinely written inside Python strings; it matches `REAL` case-sensitively so the English word does not trip it. SC-15 adds case-insensitive `real` for `.sql` files, where the word is unambiguous. Narrowing either one to silence a false positive reopens the gap — reword the prose or add a reasoned suppression instead.
 
 ## Behavioural invariants
 

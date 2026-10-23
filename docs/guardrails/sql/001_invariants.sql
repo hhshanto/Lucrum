@@ -14,35 +14,63 @@ begin;
 
 create schema if not exists guardrails;
 
+-- Every block below is guarded by to_regclass. The file is applied from
+-- slice 0 onward and each invariant activates as its table appears, so a
+-- later slice cannot introduce a table that quietly escapes enforcement.
+
 -- ---------------------------------------------------------------------------
 -- DB-01  Fulfillment is one of exactly four values.
 --        settlement_pending / reconciled belong to reconciliation.
 --        refunded is settlement evidence, not a fulfillment state.
 -- ---------------------------------------------------------------------------
 
-alter table orders
-  drop constraint if exists orders_fulfillment_status_code_check;
+do $guard$
+begin
+  if to_regclass('orders') is not null then
+    execute 'alter table orders
+  drop constraint if exists orders_fulfillment_status_code_check';
+  end if;
+end;
+$guard$;
 
-alter table orders
+do $guard$
+begin
+  if to_regclass('orders') is not null then
+    execute 'alter table orders
   add constraint orders_fulfillment_status_code_check
   check (fulfillment_status_code in (
-    'acknowledged',
-    'shipped_in_transit',
-    'delivered',
-    'cancelled'
-  ));
+    ''acknowledged'',
+    ''shipped_in_transit'',
+    ''delivered'',
+    ''cancelled''
+  ))';
+  end if;
+end;
+$guard$;
 
-alter table order_fulfillment_history
-  drop constraint if exists ofh_fulfillment_status_code_check;
+do $guard$
+begin
+  if to_regclass('order_fulfillment_history') is not null then
+    execute 'alter table order_fulfillment_history
+  drop constraint if exists ofh_fulfillment_status_code_check';
+  end if;
+end;
+$guard$;
 
-alter table order_fulfillment_history
+do $guard$
+begin
+  if to_regclass('order_fulfillment_history') is not null then
+    execute 'alter table order_fulfillment_history
   add constraint ofh_fulfillment_status_code_check
   check (fulfillment_status_code in (
-    'acknowledged',
-    'shipped_in_transit',
-    'delivered',
-    'cancelled'
-  ));
+    ''acknowledged'',
+    ''shipped_in_transit'',
+    ''delivered'',
+    ''cancelled''
+  ))';
+  end if;
+end;
+$guard$;
 
 -- ---------------------------------------------------------------------------
 -- DB-02  Closure history is monotonic. BR-08 protection must survive a reopen.
@@ -72,12 +100,24 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_closure_history_monotonic on accounting_months;
+do $guard$
+begin
+  if to_regclass('accounting_months') is not null then
+    execute 'drop trigger if exists trg_closure_history_monotonic on accounting_months';
+  end if;
+end;
+$guard$;
 
-create trigger trg_closure_history_monotonic
+do $guard$
+begin
+  if to_regclass('accounting_months') is not null then
+    execute 'create trigger trg_closure_history_monotonic
   before update on accounting_months
   for each row
-  execute function guardrails.enforce_closure_history_monotonic();
+  execute function guardrails.enforce_closure_history_monotonic()';
+  end if;
+end;
+$guard$;
 
 -- ---------------------------------------------------------------------------
 -- DB-09 / DB-10  Append-only tables.
@@ -159,12 +199,24 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_snapshot_immutable on month_close_snapshots;
+do $guard$
+begin
+  if to_regclass('month_close_snapshots') is not null then
+    execute 'drop trigger if exists trg_snapshot_immutable on month_close_snapshots';
+  end if;
+end;
+$guard$;
 
-create trigger trg_snapshot_immutable
+do $guard$
+begin
+  if to_regclass('month_close_snapshots') is not null then
+    execute 'create trigger trg_snapshot_immutable
   before update or delete on month_close_snapshots
   for each row
-  execute function guardrails.snapshot_immutable();
+  execute function guardrails.snapshot_immutable()';
+  end if;
+end;
+$guard$;
 
 -- settlement_entries: source evidence. Corrections supersede, never overwrite.
 
@@ -194,12 +246,24 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_settlement_entry_supersede_only on settlement_entries;
+do $guard$
+begin
+  if to_regclass('settlement_entries') is not null then
+    execute 'drop trigger if exists trg_settlement_entry_supersede_only on settlement_entries';
+  end if;
+end;
+$guard$;
 
-create trigger trg_settlement_entry_supersede_only
+do $guard$
+begin
+  if to_regclass('settlement_entries') is not null then
+    execute 'create trigger trg_settlement_entry_supersede_only
   before update or delete on settlement_entries
   for each row
-  execute function guardrails.settlement_entry_supersede_only();
+  execute function guardrails.settlement_entry_supersede_only()';
+  end if;
+end;
+$guard$;
 
 -- ---------------------------------------------------------------------------
 -- DB-11  Currency codes are ISO-4217 shaped. No defaults anywhere (see DB-04).
@@ -231,12 +295,24 @@ $$;
 -- DB-13  Calendar sanity on accounting periods.
 -- ---------------------------------------------------------------------------
 
-alter table accounting_months
-  drop constraint if exists accounting_months_month_range;
+do $guard$
+begin
+  if to_regclass('accounting_months') is not null then
+    execute 'alter table accounting_months
+  drop constraint if exists accounting_months_month_range';
+  end if;
+end;
+$guard$;
 
-alter table accounting_months
+do $guard$
+begin
+  if to_regclass('accounting_months') is not null then
+    execute 'alter table accounting_months
   add constraint accounting_months_month_range
-  check (month between 1 and 12);
+  check (month between 1 and 12)';
+  end if;
+end;
+$guard$;
 
 -- ---------------------------------------------------------------------------
 -- DB-14  A settlement entry linked to an order must share that order's store.
@@ -274,11 +350,23 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_settlement_store_match on settlement_entries;
+do $guard$
+begin
+  if to_regclass('settlement_entries') is not null then
+    execute 'drop trigger if exists trg_settlement_store_match on settlement_entries';
+  end if;
+end;
+$guard$;
 
-create trigger trg_settlement_store_match
+do $guard$
+begin
+  if to_regclass('settlement_entries') is not null then
+    execute 'create trigger trg_settlement_store_match
   before insert or update on settlement_entries
   for each row
-  execute function guardrails.enforce_settlement_store_match();
+  execute function guardrails.enforce_settlement_store_match()';
+  end if;
+end;
+$guard$;
 
 commit;

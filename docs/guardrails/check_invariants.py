@@ -84,6 +84,28 @@ class Rule:
         return not any(fnmatch.fnmatch(posix, g) for g in self.allow_globs)
 
 
+# Patterns describing SQL and C-style line comments. Prose explaining why a
+# rule exists must not trip the rule it explains -- that is the fastest route
+# to a scanner nobody trusts.
+_SQL_COMMENT = re.compile(r"--.*$")
+_C_COMMENT = re.compile(r"//.*$")
+
+
+def strip_comment(line: str, suffix: str) -> str:
+    """Remove a trailing line comment so prose is not scanned as code.
+
+    Conservative: a `--` or `//` inside a string literal would be stripped too,
+    which can only cause a missed finding, never a false one. Given the choice
+    between the two failure modes, a scanner that occasionally misses stays
+    trusted and a scanner that cries wolf gets disabled.
+    """
+    if suffix == ".sql":
+        return _SQL_COMMENT.sub("", line)
+    if suffix in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".java", ".kt", ".cs"}:
+        return _C_COMMENT.sub("", line)
+    return line
+
+
 def rx(p: str) -> re.Pattern:
     return re.compile(p, re.IGNORECASE)
 
@@ -135,10 +157,34 @@ RULES: list[Rule] = [
             "rounding at the end. Floats silently lose cents and the loss compounds "
             "across six cost components."
         ),
+        # SQL type names are included here deliberately, across ALL file types.
+        # This project writes DDL inside Python strings -- the migration
+        # runner's tracking table, repository f-strings -- so restricting the
+        # type names to .sql files would leave the hole exactly where this
+        # codebase puts SQL.
+        #
+        # An earlier version matched \bREAL\b case-insensitively and flagged the
+        # English word "real" six times in prose. The fix is case sensitivity,
+        # not removal: REAL and FLOAT8 are written uppercase in DDL, and
+        # lowercase "real" as a type is caught by SC-15 in .sql files where the
+        # word is unambiguous.
         pattern=rx(
             r"parseFloat\s*\(|\.toFixed\s*\(|\bfloat\s*\(\s*(?!0\)|1\))"
-            r"|\bdouble\s+precision\b|\bFLOAT8\b|\bREAL\b"
+            r"|\bdouble\s+precision\b|\bfloat8\b|\bfloat4\b|(?-i:\bREAL\b)"
         ),
+    ),
+    Rule(
+        id="SC-15",
+        summary="Floating point column type in SQL",
+        why=(
+            "A monetary column declared double precision, real or float8 loses "
+            "cents on arithmetic Postgres performs internally. Money is numeric. "
+            "DB-03 catches this in a live schema; this catches it in review. "
+            "Lowercase 'real' is only unambiguous in a .sql file, which is why "
+            "this rule is scoped there and SC-04 carries the rest everywhere."
+        ),
+        pattern=rx(r"\b(double\s+precision|float8|float4|real)\b"),
+        suffixes={".sql"},
     ),
     Rule(
         id="SC-05",
@@ -309,12 +355,14 @@ def scan_file(path: Path) -> tuple[list[Violation], list[str]]:
                 m.group("id") for m in SUPPRESSION.finditer(lines[i - 2])
             }
 
+        scannable = strip_comment(line, path.suffix)
+
         for rule in RULES:
             if rule.id in suppressed:
                 continue
             if not rule.applies_to(path):
                 continue
-            if rule.pattern.search(line):
+            if rule.pattern.search(scannable):
                 violations.append(Violation(rule, path, i, line.strip()))
 
     return violations, problems

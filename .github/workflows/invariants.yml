@@ -139,6 +139,13 @@ jobs:
             echo "No requirements.txt yet."
           fi
 
+      - name: Apply invariant constraints
+        run: |
+          if [ -d src/db/migrations ]; then
+            for f in src/db/migrations/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
+            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f docs/guardrails/sql/001_invariants.sql
+          fi
+
       - name: pytest
         run: |
           if [ -d tests ] && [ -n "$(ls -A tests 2>/dev/null)" ]; then

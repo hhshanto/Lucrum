@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+psycopg[binary,pool]==3.2.3
+jinja2==3.1.5
+python-dotenv==1.0.1
+
+# Dev / test
+pytest==8.3.4
+httpx==0.28.1
