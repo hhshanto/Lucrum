@@ -139,12 +139,16 @@ jobs:
             echo "No requirements.txt yet."
           fi
 
-      - name: Apply invariant constraints
-        run: |
-          if [ -d src/db/migrations ]; then
-            for f in src/db/migrations/*.sql; do psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f "$f"; done
-            psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f docs/guardrails/sql/001_invariants.sql
-          fi
+      # No schema setup here on purpose. tests/conftest.py's migrated_database
+      # fixture runs migrate() and then applies 001_invariants.sql itself, so
+      # this job needs an empty database and nothing else.
+      #
+      # This step used to psql the migrations in first. That bypasses the
+      # runner's schema_migrations ledger, so migrate() then saw an unmigrated
+      # database, re-applied 001_baseline.sql over the schema psql had just
+      # created, and every database test died on "relation stores already
+      # exists". The Schema invariants job above is where the raw SQL is
+      # exercised; this job exercises the runner.
 
       - name: pytest
         run: |
