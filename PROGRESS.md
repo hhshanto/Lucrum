@@ -8,7 +8,7 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
-**Slice 0 walking skeleton: done except the step 5 CI proof below. Slice 1: US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/`.**
+**Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10).
 
 **US-002 was split, because it spans two modules.** AC-01 and AC-02 are
 server-side (query layer + HTTP edge); AC-03 ("explicit discard/cancel before
@@ -97,10 +97,35 @@ expensive later:
 - **F-12** the fix for F-08 *introduced* an automatic unlock path that was
   itself unaudited.
 
-**Outstanding:** step 5 of slice 0 — push a commit containing `order_status`
-and confirm CI rejects it, then revert. Not yet demonstrated. US-001 shipping
-does not discharge this: the clean scan above is only as trustworthy as this
-unrun proof.
+**Slice 0 step 5: DEMONSTRATED 2026-10-24. Slice 0 is now complete.**
+
+Branch `guardrail-proof` (`9c98bf6`) added `src/_guardrail_probe.py` containing
+`order_status = "shipped"`, and was pushed. Result:
+
+| Job | Result |
+|---|---|
+| **Static invariant scan** | **failure, at step 4 "Scan source for prohibited patterns"** |
+| Schema invariants | success |
+| Tests | success -- pytest was entirely unaffected |
+
+Against `main` (`6766b06`, clean) the same workflow is **success**. So the
+scanner catches a violation, passes clean code, and a violation genuinely
+**fails the build** rather than printing a warning nobody reads. Branch
+deleted locally and on the remote; `src/` verified clean, exit 0, 18 files.
+
+**The trap this proof had to avoid, and which an earlier attempt fell into.**
+Two prior branches (`prove-guardrails-block`, `prove/guardrails-block`, both
+at `3b27e44`) were pushed earlier the same day and both went red -- yet step 5
+stayed open, correctly. `3b27e44` predates `752e231` ("Give CI the `APP_ENV`
+it is designed to refuse to guess"), so those builds were failing for an
+unrelated reason and proved nothing about the guardrail. **A red build is
+worth exactly as much as a red test: nothing, unless it is red for the right
+reason.** That is why the job/step breakdown above is recorded rather than a
+bare "CI failed", and it is why the run was checked per-step: `Tests` and
+`Schema invariants` both had to stay green for the result to mean anything.
+
+Every "scanner clean" recorded before today was an unvalidated signal. From
+this commit on it is a real one.
 
 **Needs an Owner decision — blocked, not deferred:**
 - **Endpoint surface.** The implementation uses `POST /auth/session` +
@@ -152,27 +177,27 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-Slice 0, in order:
+Slice 0 is complete. Slice 1 continues.
 
-1. `src/` skeleton ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â FastAPI app, one route, one table, `psycopg` connection
-2. Migration runner for plain `.sql` files in `src/db/migrations/`
-3. The cross-cutting spine, all of it before any feature:
-   - `Decimal` money type convention, floats banned
-   - currency column beside every monetary column
-   - store scoping in the query layer
-   - `operation_id` accepted on every write
-   - audit event writer, used by the first endpoint
-   - UTC storage, timezone conversion at the edges only
-4. CI green: guardrail scan, invariant DDL, schema self-test, pytest
-5. **Prove the guardrails block.** Push a commit containing `order_status` and confirm CI rejects it, then revert. An unproven guardrail manufactures false confidence.
+**US-003 � Create and configure a store** is next in the delivery order
+(`docs/walmart-slice-plan.md:73-82`), then US-004.
 
-Slice 0 is done when a deployed route returns real data from a migrated database, CI is green, and step 5 has been demonstrated.
+Two things to settle alongside it, neither blocking the start:
+
+- **B-10** is one paste and closes US-002a.
+- **Screens.** The slice plan gives slice 1 `UI-01 sign in` and `UI-02 store
+  select and create` (`walmart-slice-plan.md:80`), and none exist -- slice 1
+  has been built API-only. US-003 should carry its screen rather than
+  deferring it again, or slice 1 closes with no way for the Owner to check
+  any of it without reading tests.
+
+Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 
 ## Slice status
 
 | Slice | Stories | Status |
 |---|---|---|
-| 0 Skeleton | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | not started |
+| 0 Skeleton | -- | **done.** Step 5 guardrail proof demonstrated 2026-10-24 |
 | 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-7. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003, US-004 not started |
 | 2 Orders | US-005ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦007 | not started |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
@@ -239,6 +264,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-24 | **Slice 0 step 5 demonstrated -- slice 0 is complete.** Pushed `guardrail-proof` (`9c98bf6`) carrying `order_status` in `src/`. The **Static invariant scan** job failed at the scan step while **Tests** and **Schema invariants** both stayed green, and clean `main` (`6766b06`) passed the same workflow. The guardrail provably blocks. Two earlier branches at `3b27e44` had also gone red but proved nothing -- they predated the `APP_ENV` fix and were failing for an unrelated reason, which is why step 5 had stayed open. Branch deleted both sides. Every "scanner clean" before today was an unvalidated signal; from now on it is real. |
 | 2026-10-24 | **US-002 split; US-002a (AC-01, AC-02) implemented, audited and committed (`10b6fda`).** AC-03/AC-04 are UI-shell criteria with no shell, no form and no filtered list to act on -- split out as US-002b rather than inventing a shell plus stub screens. AC-02 needed no production code; **AC-01 did**: `is_active` was acting as an unagreed visibility filter, and the two read paths disagreed about it (F-21). Escalated rather than defaulted; the Owner closed it as B-7, and `include_inactive` was then **removed** rather than flipped to `True`, so the exclusion cannot be reintroduced by a keyword argument. **21 lines of production change, 14 tests, 110 passing**, scan clean, 0 suppressions. Three audit passes: pass 1 failed on F-21; **pass 2 failed because mutation testing had reverted the uncommitted fix with `git checkout`** and the tree genuinely had no fix in it -- the auditor was right and the status report was wrong; pass 3 failed on F-25, this file contradicting its own commit. F-22/F-23/F-24 closed (SQL-spy pin, decoy users for hermeticity, header comparison). Still open: B-9 writes-to-inactive, B-10 spec amendment, and B-6 narrowed-not-closed (two spy mutations survive -- cursor bypass, textual-not-semantic scope match). |
 | 2026-10-24 | **US-001 delivered and audited.** `src/access/` (passwords, repository, service), migration `002_access.sql`, session-backed `request_scope`, `POST`/`DELETE /auth/session`, `GET /stores/{store_id}`. **96 tests pass**, scan clean, 0 suppressions. Auditor failed it twice (6 blocking, then 1); F-01...F-12 all closed. Two pre-existing `test_api.py` tests were corrected -- they pinned the slice-0 placeholder and realised BT-08 with an *unauthenticated* caller, which the register defines as "request both as a scoped user". Both came out stricter; BT-08 write-path coverage preserved. Rate limiting still unimplemented (access-v1 gives no window/multiplier/cap) -- escalated, not invented. |
 | 2026-10-23 | Golden orders loaded: 20 real cases, profit-v1 verified against them. Found a workbook error (GR-06) and corrected estimate precision to 4dp. |
