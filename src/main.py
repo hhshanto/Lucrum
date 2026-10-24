@@ -11,20 +11,22 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src import audit
+from src.access import repository as access_repository
 from src.access import service as access_service
 from src.clock import utc_now
 from src.config import ConfigurationMissing, load_settings
 from src.db.connection import close_pool, connection, init_pool
-from src.scoping import OutOfScope, StoreScope
-from src.stores import repository
+from src.scoping import Forbidden, OutOfScope, StoreScope
+from src.stores import repository, service as stores_service
 
 
 @asynccontextmanager
@@ -93,11 +95,64 @@ def request_scope(request: Request) -> StoreScope:
         return access_service.resolve_scope(conn, session.user_id)
 
 
+@dataclass(frozen=True)
+class Actor:
+    """An authenticated caller's scope *and* role.
+
+    ``request_scope`` alone is enough for every endpoint that only needs to
+    answer "which stores" (US-001, US-002). US-003 AC-03 needs a second,
+    independent answer -- "is this role even allowed to attempt this
+    action" -- which ``StoreScope`` carries no information about by design
+    (scope and role are different questions; see
+    ``src/stores/service.py``). Resolved from one authenticated session
+    rather than two, so a role-checked endpoint does not validate the same
+    token twice.
+    """
+
+    scope: StoreScope
+    role: str
+
+
+def request_actor(request: Request) -> Actor:
+    """Like ``request_scope``, but also resolves the caller's role.
+
+    Only used by endpoints that must apply a capability-matrix check
+    (BR-11) in addition to store scope -- today, store creation and store
+    identity changes (US-003 AC-03).
+    """
+    header = request.headers.get("Authorization")
+    if not header:
+        raise access_service.SessionInvalid("no credential offered")
+
+    token = _bearer_token(header)
+    with connection() as conn:
+        session = access_service.authenticate(conn, token)
+        scope = access_service.resolve_scope(conn, session.user_id)
+        user = access_repository.get_user(conn, session.user_id)
+        if user is None:  # pragma: no cover - resolve_scope already refused this
+            raise access_service.SessionInvalid("the signed-in user no longer exists")
+        return Actor(scope=scope, role=user["role"])
+
+
 @app.exception_handler(OutOfScope)
 async def out_of_scope_handler(request: Request, exc: OutOfScope):
     # 404, never 403. US-002 AC-02: an unauthorised store must be
     # indistinguishable from one that does not exist.
     raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.exception_handler(Forbidden)
+async def forbidden_handler(request: Request, exc: Forbidden):
+    # 403, never 404. US-003 AC-03: a role rejection is a different answer
+    # from "not found" -- the actor already knows the resource exists (they
+    # may even be assigned to it), so there is nothing left to protect by
+    # disguising the rejection as a 404. str(exc) is deliberately not
+    # surfaced: it is an internal note for whoever reads the exception, not
+    # a public message.
+    raise HTTPException(
+        status_code=403,
+        detail={"code": "FORBIDDEN", "message": "Not permitted."},
+    )
 
 
 @app.exception_handler(access_service.SessionInvalid)
@@ -332,6 +387,24 @@ def add_store_note(
     }
 
 
+def _store_body(store: dict[str, object]) -> dict[str, object]:
+    """The public representation of a store, shared by every endpoint that
+    returns one. One place composing ``activation_blockers`` onto a row
+    means list, detail, create and rename can never quietly disagree about
+    its shape (the exact asymmetry F-21/B-7 found between two hand-written
+    copies of this same dict)."""
+    return {
+        "id": str(store["id"]),
+        "name": store["name"],
+        "walmart_store_key": store["walmart_store_key"],
+        "timezone": store["timezone"],
+        "currency_code": store["reporting_currency_code"],
+        "managed_from_year": store["managed_from_year"],
+        "managed_from_month": store["managed_from_month"],
+        "activation_blockers": repository.activation_blockers(store),
+    }
+
+
 @app.get("/stores")
 def list_stores(scope: StoreScope = Depends(request_scope)) -> dict[str, object]:
     """Stores within the caller's scope.
@@ -346,17 +419,7 @@ def list_stores(scope: StoreScope = Depends(request_scope)) -> dict[str, object]
         rows = repository.list_stores(conn, scope)
 
     return {
-        "data": [
-            {
-                "id": str(r["id"]),
-                "name": r["name"],
-                "walmart_store_key": r["walmart_store_key"],
-                "timezone": r["timezone"],
-                "currency_code": r["reporting_currency_code"],
-                "activation_blockers": repository.activation_blockers(r),
-            }
-            for r in rows
-        ],
+        "data": [_store_body(r) for r in rows],
         "meta": {"count": len(rows)},
         "errors": [],
     }
@@ -378,14 +441,147 @@ def get_store_detail(
         store = repository.get_store(conn, scope, store_id)
 
     return {
-        "data": {
-            "id": str(store["id"]),
-            "name": store["name"],
-            "walmart_store_key": store["walmart_store_key"],
-            "timezone": store["timezone"],
-            "currency_code": store["reporting_currency_code"],
-            "activation_blockers": repository.activation_blockers(store),
-        },
+        "data": _store_body(store),
         "meta": {},
+        "errors": [],
+    }
+
+
+class StoreCreateRequest(BaseModel):
+    """US-003 AC-01. Field names follow the column names in
+    ``001_baseline.sql`` with one adjustment -- ``currency_code`` rather than
+    ``reporting_currency_code`` -- to match the key this API's existing
+    ``GET /stores`` responses already use (see the test file's docstring;
+    neither ``walmart-user-stories.md`` nor the API document specifies a
+    request body shape for this endpoint).
+
+    ``timezone`` and ``currency_code`` are optional with no default of any
+    kind (US-003 AC-02 / period-v1 / BR-12): a store may be created before
+    either is known, and the absent value is stored as ``NULL``, never
+    guessed. ``walmart_store_key`` is a required, ``NOT NULL`` database
+    column (001_baseline.sql:29) and is not one of AC-02's two named
+    blockers -- its absence is a plain validation error, not an activation
+    blocker.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    walmart_store_key: str = Field(min_length=1, max_length=200)
+    timezone: str | None = None
+    currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    managed_from_year: int | None = None
+    managed_from_month: int | None = Field(default=None, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def _managed_from_paired(self) -> "StoreCreateRequest":
+        # Mirrors stores_managed_from_paired (001_baseline.sql): reported as
+        # a clear 422 here rather than as a database IntegrityError.
+        if (self.managed_from_year is None) != (self.managed_from_month is None):
+            raise ValueError(
+                "managed_from_year and managed_from_month must both be "
+                "provided, or both omitted"
+            )
+        return self
+
+
+@app.post("/stores", status_code=201)
+def create_store(
+    body: StoreCreateRequest,
+    response: Response,
+    operation_id: str = Header(alias="Idempotency-Key"),
+    actor: Actor = Depends(request_actor),
+) -> dict[str, object]:
+    """Register a store (US-003 AC-01). Owner only (BR-11, AC-03).
+
+    Follows the write pattern established by ``add_store_note``:
+    ``operation_id`` is required from the caller, not generated here; the
+    audit event is written in the same transaction as the store row it
+    describes; a replay reports the original store rather than creating a
+    second one (``src/stores/service.py`` carries the mechanics of how that
+    is made atomic for a row-creating write specifically).
+    """
+    with connection() as conn:
+        store, replayed = stores_service.create_store(
+            conn,
+            actor_id=actor.scope.actor_id,
+            role=actor.role,
+            fields={
+                "name": body.name,
+                "walmart_store_key": body.walmart_store_key,
+                "timezone": body.timezone,
+                "reporting_currency_code": body.currency_code,
+                "managed_from_year": body.managed_from_year,
+                "managed_from_month": body.managed_from_month,
+            },
+            operation_id=operation_id,
+        )
+
+    if replayed:
+        # Nothing was created on this call -- same convention as
+        # add_store_note's replay branch.
+        response.status_code = 200
+
+    return {
+        "data": _store_body(store),
+        "meta": {"operation_id": operation_id, "replayed": replayed},
+        "errors": [],
+    }
+
+
+class StoreUpdateRequest(BaseModel):
+    """US-003 AC-04 / BR-11 "change store settings". Every field is
+    optional -- only the ones actually present in the request body are
+    changed (``model_dump(exclude_unset=True)`` below), so a rename that
+    supplies only ``name`` cannot disturb ``timezone`` or any other field by
+    merely defaulting it to ``None``."""
+
+    name: str | None = None
+    timezone: str | None = None
+    currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    managed_from_year: int | None = None
+    managed_from_month: int | None = Field(default=None, ge=1, le=12)
+
+
+# Request field name -> column name. Kept next to the request model rather
+# than in the repository, which only ever sees already-translated column
+# names (src/stores/repository.py's own _IDENTITY_COLUMNS is the second half
+# of this same allowlist discipline, one layer further in).
+_UPDATE_FIELD_TO_COLUMN = {
+    "name": "name",
+    "timezone": "timezone",
+    "currency_code": "reporting_currency_code",
+    "managed_from_year": "managed_from_year",
+    "managed_from_month": "managed_from_month",
+}
+
+
+@app.patch("/stores/{store_id}")
+def update_store(
+    store_id: uuid.UUID,
+    body: StoreUpdateRequest,
+    response: Response,
+    operation_id: str = Header(alias="Idempotency-Key"),
+    actor: Actor = Depends(request_actor),
+) -> dict[str, object]:
+    """Change a store's identity fields -- rename, retimezone, recurrency,
+    or re-set ``managed_from`` (US-003 AC-04). Owner or Admin, scoped to
+    stores the actor is assigned to (BR-11, AC-03).
+    """
+    provided = body.model_dump(exclude_unset=True)
+    fields = {_UPDATE_FIELD_TO_COLUMN[k]: v for k, v in provided.items()}
+
+    with connection() as conn:
+        store, replayed = stores_service.update_store_identity(
+            conn,
+            actor.scope,
+            actor_id=actor.scope.actor_id,
+            role=actor.role,
+            store_id=store_id,
+            fields=fields,
+            operation_id=operation_id,
+        )
+
+    return {
+        "data": _store_body(store),
+        "meta": {"operation_id": operation_id, "replayed": replayed},
         "errors": [],
     }

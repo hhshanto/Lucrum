@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-__all__ = ["StoreScope", "OutOfScope"]
+__all__ = ["StoreScope", "OutOfScope", "Forbidden"]
 
 
 class OutOfScope(LookupError):
@@ -29,6 +29,21 @@ class OutOfScope(LookupError):
 
     Deliberately a LookupError. Callers should translate this to "not found",
     never to "forbidden" -- see the module docstring.
+    """
+
+
+class Forbidden(Exception):
+    """The actor's role does not permit this action at all.
+
+    A different question from ``OutOfScope``, and the two must never be
+    merged (US-003 AC-03): ``OutOfScope`` answers "is this store visible to
+    you" (404, protecting against disclosure); ``Forbidden`` answers "does
+    your role permit this action" (403, where the actor already knows the
+    resource exists -- there is nothing left to protect by hiding it behind
+    a 404). BR-11's capability matrix draws these as two separate lines per
+    action (e.g. "create store" vs. "change store settings"); this exception
+    exists so a role check can fail on its own, independent of whichever
+    store the action targets.
     """
 
 
