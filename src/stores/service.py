@@ -59,6 +59,7 @@ __all__ = [
     "require_can_create_store",
     "require_can_change_store_settings",
     "require_can_change_managed_from",
+    "DuplicateStoreKey",
     "create_store",
     "update_store_identity",
 ]
@@ -89,14 +90,42 @@ _CAN_CHANGE_STORE_SETTINGS = frozenset({"owner", "admin"})
 # of which forbids Admin the equivalent power over a different boundary; the
 # generic matrix cannot be read to override all three on its own.
 #
-# Interim handling (Owner decision, not invented here): managed_from_year
-# and managed_from_month are Owner-only on PATCH, pending an explicit Owner
-# ruling on the conflict. This is the intersection of every reading above --
-# every document agrees the Owner may; only the generic settings row
-# arguably extends the power to Admin, and a narrower reading cannot be
-# wrong in the direction of granting a power no document actually grants.
+# Interim handling: managed_from_year and managed_from_month are Owner-only
+# on PATCH, pending an explicit Owner ruling on the conflict -- not an Owner
+# decision already made (a comment claiming authority it does not have is
+# how an interim measure quietly becomes permanent). This is the
+# intersection of every reading above: every document agrees the Owner may;
+# only the generic settings row arguably extends the power to Admin, and a
+# narrower reading cannot be wrong in the direction of granting a power no
+# document actually grants.
 _CAN_CHANGE_MANAGED_FROM = frozenset({"owner"})
 _MANAGED_FROM_FIELDS = frozenset({"managed_from_year", "managed_from_month"})
+
+# F-45 (US-003 audit): the exact name Postgres assigns a column-level
+# `unique` constraint declared with no explicit name of its own
+# (001_baseline.sql:29, `walmart_store_key text not null unique`) --
+# confirmed against the running schema, not guessed, since guessing wrong
+# here would silently let the real conflict escape uncaught again.
+_WALMART_STORE_KEY_UNIQUE_CONSTRAINT = "stores_walmart_store_key_key"
+
+
+class DuplicateStoreKey(Exception):
+    """A store with this ``walmart_store_key`` already exists.
+
+    AC-02's own principle -- a configuration problem is identified, never
+    guessed at or swallowed -- extends here to a conflicting *external*
+    identifier: re-registering a store Walmart already has a key for is the
+    single most likely operator error on this story's headline endpoint,
+    and it was previously an unhandled 500 with no indication of which
+    field, or which value, actually conflicted (F-45, US-003 audit).
+    """
+
+    def __init__(self, walmart_store_key: str) -> None:
+        super().__init__(
+            f"walmart_store_key {walmart_store_key!r} is already registered "
+            "to another store"
+        )
+        self.walmart_store_key = walmart_store_key
 
 
 def require_can_create_store(role: str) -> None:
@@ -161,7 +190,18 @@ def create_store(
 
     try:
         with conn.transaction():
-            store = repository.create_store(conn, **fields)
+            try:
+                store = repository.create_store(conn, **fields)
+            except psycopg.errors.UniqueViolation as exc:
+                # F-45: only the walmart_store_key constraint means "this
+                # external identifier is already taken" -- any other unique
+                # violation (there is none today, but the next migration
+                # could add one) is a real, unanticipated error and must
+                # not be swallowed as if it were this specific, named case.
+                constraint = getattr(exc.diag, "constraint_name", None)
+                if constraint != _WALMART_STORE_KEY_UNIQUE_CONSTRAINT:
+                    raise
+                raise DuplicateStoreKey(fields["walmart_store_key"]) from exc
             audit.record(
                 conn,
                 audit.AuditEvent(

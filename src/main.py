@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src import audit
 from src.access import repository as access_repository
@@ -180,6 +180,23 @@ async def replay_conflict_handler(request: Request, exc: audit.ReplayConflict):
         detail={
             "code": "OPERATION_ID_CONFLICT",
             "message": "This Idempotency-Key was already used for a different operation.",
+        },
+    )
+
+
+@app.exception_handler(stores_service.DuplicateStoreKey)
+async def duplicate_store_key_handler(
+    request: Request, exc: stores_service.DuplicateStoreKey
+):
+    # F-45 (US-003 audit): a conflicting external identifier is a
+    # configuration problem (AC-02's own principle), named rather than
+    # surfaced as a generic 500.
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "DUPLICATE_WALMART_STORE_KEY",
+            "field": "walmart_store_key",
+            "message": "A store with this walmart_store_key is already registered.",
         },
     )
 
@@ -380,7 +397,14 @@ def add_store_note(
       guarantees nothing,
     * the audit event is written in the **same transaction** as the change, so
       it cannot survive a rollback and describe something that never happened,
-    * a replay returns the original outcome with 200 instead of acting twice.
+    * a replay returns the original outcome with 200 instead of acting twice,
+    * an ``Idempotency-Key`` reused against a *different* write (a different
+      store, a different endpoint entirely) is a 409 conflict, never a 200 --
+      ``audit.check_replay_target`` is what makes that true here; copy it
+      along with everything else (F-46, US-003 audit: this endpoint did not
+      carry it even after the same commit introduced it for the two newer
+      ones, which is exactly backwards for a function that advertises
+      itself as the pattern to copy).
     """
     with connection() as conn:
         store = repository.get_store(conn, scope, store_id)
@@ -400,6 +424,12 @@ def add_store_note(
                 ),
             )
         except audit.DuplicateOperation as replay:
+            audit.check_replay_target(
+                replay.existing_event,
+                event_type="store_note_added",
+                entity_type="store",
+                entity_id=store["id"],
+            )
             # 200, not 201: nothing was created on this call. The status is
             # part of the idempotency contract, not decoration.
             response.status_code = 200
@@ -491,7 +521,17 @@ class StoreCreateRequest(BaseModel):
     column (001_baseline.sql:29) and is not one of AC-02's two named
     blockers -- its absence is a plain validation error, not an activation
     blocker.
+
+    F-44 (US-003 audit): ``extra="forbid"`` -- Pydantic's default is
+    ``extra="ignore"``, which silently drops any field it does not
+    recognise. Without this, a caller who sent ``reporting_currency_code``
+    (the real column name, per database-schema.md:191 and this module's own
+    ``_IDENTITY_COLUMNS``) instead of ``currency_code`` got back 201 with
+    the field quietly discarded and the column left NULL -- a confident
+    success report for a request that did not do what it said.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     # F-36 (US-003 audit): max_length is deliberately NOT set here. Both
     # columns are unconstrained `text` (001_baseline.sql) -- a length cap
@@ -588,7 +628,16 @@ class StoreUpdateRequest(BaseModel):
     accepting whatever shape JSON happens to allow. Omit the field entirely
     to leave it unchanged; this is unambiguous and already worked before
     this fix.
+
+    F-44 (US-003 audit): ``extra="forbid"`` -- the F-39 no-op-for-empty-
+    patch fix made an unrecognised field's silent drop *worse*, not better:
+    ``{"reporting_currency_code": "EUR"}`` (the real column name) used to
+    compute ``fields={}`` after translation and take the "nothing to do"
+    branch, returning 200 "unchanged" with no indication the field was
+    never recognised at all. ``{"is_active": false}`` behaved the same way.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
     timezone: str | None = None

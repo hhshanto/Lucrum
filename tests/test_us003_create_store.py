@@ -396,8 +396,14 @@ class TestAC01StableIdentifier:
         first_id = first.json()["data"]["id"]
 
         # The replay must not silently fail either -- it must report back
-        # the original outcome, not a generic error.
-        assert second.status_code in (200, 201), second.text
+        # the original outcome, not a generic error. F-52 (US-003 audit):
+        # this was a disjunctive assertion that accepted both the right
+        # answer and the wrong one -- entity_id and event_type genuinely
+        # match here (same store, same create), so this is unambiguously a
+        # replay and must be exactly 200, never 201 (nothing was created on
+        # this call), and meta must say so explicitly.
+        assert second.status_code == 200, second.text
+        assert second.json()["meta"]["replayed"] is True
         assert second.json()["data"]["id"] == first_id
 
         # The second payload's walmart_store_key must never have been
@@ -896,7 +902,12 @@ class TestAC04RenamePreservesIdentityAndLinks:
         second = _patch_store(client, token, store_id, {"name": "AC04 Replay Second"}, operation_id=op_id)
 
         assert first.status_code == 200, first.text
-        assert second.status_code in (200, 409)  # must not silently succeed with the second name
+        # F-52 (US-003 audit): same store, same computed event_type both
+        # times (only ``name`` differs) -- genuinely a replay, never a
+        # conflict, so this is exactly 200, not merely "not 200 and not
+        # something worse". meta must say so explicitly too.
+        assert second.status_code == 200, second.text
+        assert second.json()["meta"]["replayed"] is True
 
         row = _fetch_store_row(migrated_database, store_id)
         assert row["name"] == "AC04 Replay First", (
@@ -1595,3 +1606,308 @@ class TestF39EmptyPatchIsANoOp:
         assert after_row["updated_at"] == before_row["updated_at"], (
             "an empty patch must not bump updated_at for a change that did not happen"
         )
+
+
+# ---------------------------------------------------------------------------
+# invariant-auditor pass 2 on d0c0d17 -- F-44 through F-53.
+# ---------------------------------------------------------------------------
+
+
+class TestF44UnknownFieldsAreRejectedNotIgnored:
+    """F-44 (US-003 audit). Pydantic's default ``extra='ignore'`` silently
+    dropped any field it did not recognise -- most dangerously
+    ``reporting_currency_code`` on PATCH, the column's REAL name
+    (database-schema.md:191, this module's own ``_IDENTITY_COLUMNS``),
+    which the F-39 no-op fix then reported back as a confident 200
+    "unchanged" rather than even bumping ``updated_at``.
+    """
+
+    def test_f44_post_stores_rejects_an_unknown_field(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f44-post-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        payload = _store_payload()
+        payload["time_zone"] = "America/New_York"  # not a field this API accepts
+        r = _post_store(client, token, payload)
+        assert r.status_code == 422, r.text
+
+    def test_f44_patch_store_rejects_the_real_column_name_reporting_currency_code(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F44 Real Column Name Store", reporting_currency_code="USD"
+            )
+            owner = _create_user(c, role="owner", password="f44-patch-col-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"reporting_currency_code": "EUR"})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["reporting_currency_code"] == "USD", (
+            "an unrecognised field must be rejected, not silently ignored while "
+            "reporting 200 'unchanged'"
+        )
+
+    def test_f44_patch_store_rejects_is_active(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F44 Is Active Store", is_active=True)
+            owner = _create_user(c, role="owner", password="f44-patch-active-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"is_active": False})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["is_active"] is True
+
+
+class TestF45DuplicateWalmartStoreKeyIsAConflictNotA500:
+    def test_f45_creating_a_store_with_an_existing_walmart_store_key_returns_409(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f45-dup-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        shared_key = f"F45-DUP-{uuid.uuid4().hex[:12]}"
+        first = _post_store(client, token, _store_payload(walmart_store_key=shared_key))
+        assert first.status_code == 201, first.text
+
+        second = _post_store(
+            client,
+            token,
+            _store_payload(name="F45 Second Attempt", walmart_store_key=shared_key),
+        )
+        assert second.status_code == 409, second.text
+        assert second.json()["detail"]["field"] == "walmart_store_key"
+
+        assert _count_stores_matching(migrated_database, walmart_store_key=shared_key) == 1
+
+
+class TestF46AddStoreNoteUsesTheSameReplayDiscipline:
+    """F-46 (US-003 audit). ``add_store_note``'s own docstring claims it
+    "exists so that every write endpoint in slices 1 onward has a correct
+    pattern to copy" -- it must actually carry every rule the pattern
+    claims, including the one introduced in this same commit for the two
+    newer endpoints and left out of the reference one.
+    """
+
+    def test_f46_a_key_spent_on_a_patch_cannot_be_replayed_as_a_note(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F46 Patch Then Note Store")
+            owner = _create_user(c, role="owner", password="f46-cross-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        patched = _patch_store(
+            client, token, store_id, {"name": "F46 Renamed"}, operation_id=op_id
+        )
+        assert patched.status_code == 200, patched.text
+
+        note = client.post(
+            f"/stores/{store_id}/notes",
+            json={"note": "F46 should not be recorded"},
+            headers={**_auth(token), "Idempotency-Key": op_id},
+        )
+        assert note.status_code == 409, note.text
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+        assert audit_rows[0]["event_type"] == "store_settings_updated"
+        assert "F46 should not be recorded" not in json.dumps(
+            dict(audit_rows[0]), default=str
+        )
+
+
+class TestF48CheckReplayTargetEntityTypeIsPinned:
+    """F-48 (US-003 audit). Every scenario anywhere else in this file
+    happens to carry ``entity_type="store"`` on both sides of the
+    comparison, so deleting that leg of ``audit.check_replay_target``
+    survives the whole HTTP-level suite. A direct unit test against the
+    pure function is what actually pins it -- not more HTTP coverage.
+    """
+
+    def test_f48_a_different_entity_type_is_a_conflict_even_with_a_matching_event_type(
+        self,
+    ):
+        from src import audit
+
+        existing_event = {
+            "operation_id": "f48-op",
+            "event_type": "store_created",
+            "entity_type": "user",  # deliberately not "store"
+            "entity_id": uuid.uuid4(),
+        }
+        with pytest.raises(audit.ReplayConflict):
+            audit.check_replay_target(
+                existing_event, event_type="store_created", entity_type="store"
+            )
+
+
+class TestF49EmptyPatchStillGoesThroughRoleAndScope:
+    """F-49 (US-003 audit). The F-39 no-op-for-an-empty-patch return sits
+    after the role check and the scope fetch today -- untested, and
+    exactly the kind of ordering a later refactor moves without noticing.
+    """
+
+    def test_f49_manager_empty_patch_is_still_403_not_200(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F49 Manager Empty Patch Store")
+            manager = _create_user(c, role="manager", password="f49-manager-empty-pw")
+            _assign(c, manager["id"], store_id)
+        token = _sign_in(client, manager, with_mfa=False)
+
+        r = _patch_store(client, token, store_id, {})
+        assert r.status_code == 403, r.text
+
+    def test_f49_out_of_scope_empty_patch_is_still_404_not_200(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            other_store = _create_store_db(c, "F49 Out Of Scope Empty Patch Store")
+            admin = _create_user(c, role="admin", password="f49-admin-oos-empty-pw")
+            # Deliberately no _assign() call for this admin.
+            decoy = _create_user(c, role="manager", password="f49-decoy-pw")
+            _assign(c, decoy["id"], other_store)
+        token = _sign_in(client, admin, with_mfa=True)
+
+        r = _patch_store(client, token, other_store, {})
+        assert r.status_code == 404, r.text
+
+
+class TestF50CreateStoreReplayUsesTheGivenScope:
+    """F-50 (US-003 audit). Reverting the replay fetch in ``create_store``
+    to a fabricated ``StoreScope.owner(...)`` survives the whole HTTP
+    suite, because the only role permitted to create a store IS the Owner
+    -- the fabricated scope and the real caller's scope agree on every
+    HTTP-reachable path. This pins it directly at the service layer with a
+    scope that does NOT in fact cover the store just created, which only a
+    scope genuinely threaded through can satisfy.
+    """
+
+    def test_f50_replay_fetch_is_scoped_to_the_caller_not_a_fabricated_owner_scope(
+        self, conn
+    ):
+        from src.scoping import OutOfScope, StoreScope
+        from src.stores import service as stores_service
+
+        fields = {
+            "name": f"F50 Store {uuid.uuid4().hex[:8]}",
+            "walmart_store_key": f"F50-{uuid.uuid4().hex[:12]}",
+            "timezone": "America/New_York",
+            "reporting_currency_code": "USD",
+            "managed_from_year": 2026,
+            "managed_from_month": 7,
+        }
+        op_id = str(uuid.uuid4())
+
+        store, replayed = stores_service.create_store(
+            conn,
+            StoreScope.owner(actor_id=uuid.uuid4()),
+            actor_id=None,
+            role="owner",
+            fields=fields,
+            operation_id=op_id,
+        )
+        assert replayed is False
+
+        # A scope that does NOT include the store just created -- the real
+        # Owner's own scope always would (StoreScope.owner() covers every
+        # store unconditionally), so this is only reachable by threading
+        # the *given* scope through, never by substituting a fabricated
+        # Owner scope back in on the replay path.
+        restricted_scope = StoreScope.assigned(actor_id=uuid.uuid4(), store_ids=[])
+
+        with pytest.raises(OutOfScope):
+            stores_service.create_store(
+                conn,
+                restricted_scope,
+                actor_id=None,
+                role="owner",
+                # A different walmart_store_key: this call must be refused
+                # on the operation_id-replay path (F-50), not accidentally
+                # short-circuited by the F-45 duplicate-key path, which a
+                # repeated key would trigger first and never reach it.
+                fields={
+                    **fields,
+                    "name": "F50 Should Not Apply",
+                    "walmart_store_key": f"F50-second-{uuid.uuid4().hex[:12]}",
+                },
+                operation_id=op_id,
+            )
+
+
+class TestF53ValidatorsAreActuallyExercised:
+    """F-53 (US-003 audit). ``currency_code``'s pattern and the
+    ``managed_from`` pairing validator both ship on create AND update with
+    no test pinning either -- deleting the pattern validator would turn a
+    422 into an unhandled 500 via ``stores_currency_fmt``, silently. Also:
+    no test anywhere creates a store via ``POST /stores`` with
+    ``managed_from`` omitted -- the HTTP path for a null ``managed_from``
+    (as opposed to the DB-layer path, already covered) was unproven.
+    """
+
+    def test_f53_create_rejects_a_malformed_currency_code(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f53-create-cur-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _post_store(client, token, _store_payload(currency_code="usd"))
+        assert r.status_code == 422, r.text
+
+    def test_f53_update_rejects_a_malformed_currency_code(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F53 Update Currency Store", reporting_currency_code="USD"
+            )
+            owner = _create_user(c, role="owner", password="f53-update-cur-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"currency_code": "US"})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["reporting_currency_code"] == "USD"
+
+    def test_f53_create_rejects_an_unpaired_managed_from(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f53-create-mf-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _post_store(client, token, _without(_store_payload(), "managed_from_month"))
+        assert r.status_code == 422, r.text
+
+    def test_f53_update_rejects_an_unpaired_managed_from(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F53 Update Managed From Store")
+            owner = _create_user(c, role="owner", password="f53-update-mf-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"managed_from_year": 2027})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["managed_from_year"] == 2026
+        assert row["managed_from_month"] == 7
+
+    def test_f53_post_stores_with_managed_from_omitted_is_permitted_and_stored_as_null(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f53-omit-mf-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        payload = _without(_store_payload(), "managed_from_year", "managed_from_month")
+        r = _post_store(client, token, payload)
+        assert r.status_code == 201, r.text
+        assert r.json()["data"]["managed_from_year"] is None
+        assert r.json()["data"]["managed_from_month"] is None
+
+        row = _fetch_store_row(migrated_database, r.json()["data"]["id"])
+        assert row["managed_from_year"] is None
+        assert row["managed_from_month"] is None
