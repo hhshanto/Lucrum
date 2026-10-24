@@ -8,13 +8,77 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
-**Slice 0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â walking skeleton. Not started.**
+**Slice 0 walking skeleton: done except the step 5 CI proof below. Slice 1: US-001 done and audited.**
 
-`src/` exists: 13 modules, 72 tests, all four gates green (scanner, invariant DDL,
-schema self-test, pytest). Audited by `invariant-auditor`; findings fixed.
+`src/` now has an `access` module (US-001 -- sign in securely): `users`,
+`user_sessions`, `user_store_assignments`, `access_policy` tables; password
+hashing (bcrypt cost 12), session issue/validate/revoke, lockout, MFA
+enforcement for Owner/Admin, and real store-scope resolution wired into
+`main.request_scope`. **96 tests pass.** Scanner clean (18 files, 0
+suppressions); schema self-test clean.
+
+US-001 went through the full pipeline: `spec-oracle` -> tests-first ->
+implement -> `invariant-auditor`. The auditor **failed the first pass with six
+blocking findings** and a second pass with one. All twelve findings (F-01...F-12)
+are closed. The significant ones, because they are the kind that would have been
+expensive later:
+
+- **F-01** there was no authentication gate at all -- a missing credential
+  resolved to the same `StoreScope` as an authenticated user with no
+  assignments, so the system could filter by scope but never *require* auth.
+- **F-02** account-enumeration timing oracle (unknown email skipped bcrypt).
+- **F-03** failed TOTP codes did not count toward lockout, leaving the Owner /
+  Admin second factor with no brute-force brake at all.
+- **F-04** deactivating a user did not invalidate their live sessions.
+- **F-05** the plaintext password was echoed in FastAPI's 422 validation body.
+- **F-12** the fix for F-08 *introduced* an automatic unlock path that was
+  itself unaudited.
 
 **Outstanding:** step 5 of slice 0 — push a commit containing `order_status`
-and confirm CI rejects it, then revert. Not yet demonstrated.
+and confirm CI rejects it, then revert. Not yet demonstrated. US-001 shipping
+does not discharge this: the clean scan above is only as trustworthy as this
+unrun proof.
+
+**Needs an Owner decision — blocked, not deferred:**
+- **Endpoint surface.** The implementation uses `POST /auth/session` +
+  `DELETE /auth/session`; `api-service-design.md:153-169` specifies
+  `POST /auth/login`, `POST /auth/mfa/verify`, `POST /auth/logout`.
+  `walmart-user-stories.md` names no paths, and `spec-oracle` confirms the API
+  document is binding for endpoint shape where the authoritative document is
+  silent. Either conform the code, or the Owner amends the API document.
+  Recording it without doing one of those leaves the contradiction open.
+- Per-account / per-IP rate limiting with exponential backoff (access-v1)
+  is specified but has no window, multiplier, or cap given, and was left
+  unimplemented rather than inventing numbers.
+- The sign-in lockout threshold (5 attempts) and lockout duration (15
+  minutes) in `access_policy` were chosen, not specified, because access-v1
+  says only "temporary lockout after repeated failures." Both are
+  configuration rows, not constants, so the Owner can revise either without
+  a deploy -- but the initial values should be reviewed.
+- **F-13 contradiction.** `ACCOUNT_LOCKED` is a 5-request account-existence
+  oracle. `walmart-user-stories.md:90` wants a *temporary lockout* (only useful
+  if the user is told); `api-service-design.md:160` wants identical wording for
+  unknown account and wrong password. Both authoritative-ish, mutually
+  exclusive. Resolve alongside rate limiting -- a per-IP limiter satisfies both.
+- Password strength / breach-list policy (`walmart-user-stories.md:88`). No
+  password-set flow exists yet for it to attach to; recorded in
+  `passwords.py`'s docstring so it is not silently lost.
+- **Migration immutability rule.** `002_access.sql` was edited after being
+  applied locally (it had never been committed). Agree the boundary *now*:
+  a migration becomes immutable when it merges to main, not when it is first
+  applied locally. From slice 2 the golden fixtures make local resets
+  expensive; once B-4 lands, a shared instance makes them impossible.
+
+**Carried forward — engineering work, no decision needed:**
+F-14 allowlist the Pydantic `ctx` keys before the first custom validator lands
+(the current sanitiser is a denylist); F-15 error envelope does not match
+`api-service-design.md:108-120`; F-16 unaudited defence-in-depth `MfaRequired`
+branch; F-17 `/health` leaks `migrations_applied` to anonymous callers;
+F-18 commit boundary (US-001 is one uncommitted blob, so the auditor could not
+diff passes in isolation); F-19 `get_user_credentials` reads without
+`FOR UPDATE`, so a concurrent threshold-crossing lock can be cleared without an
+unlock event -- fold into the rate-limiting/BT-04 concurrency work;
+F-20 the F-12 test asserts the event type but not `reason == "lock_expired"`.
 
 **Carried into slice 3 (from audit finding F-11):** `money.py` makes "no floats"
 and "currency is inseparable" structural, but "unknown is not zero" remains a
@@ -46,7 +110,7 @@ Slice 0 is done when a deployed route returns real data from a migrated database
 | Slice | Stories | Status |
 |---|---|---|
 | 0 Skeleton | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | not started |
-| 1 Access and stores | US-001ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦004 | not started |
+| 1 Access and stores | US-001…004 | US-001 done; US-002…004 not started |
 | 2 Orders | US-005ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦007 | not started |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
 | 4 Settlement evidence | US-015ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦017 | not started |
@@ -95,7 +159,8 @@ Append here when something is settled that is not a business rule. Business rule
 | 2026-10-23 | Stack: Python 3.12, FastAPI, Jinja + htmx, plain managed PostgreSQL, raw SQL migrations, pytest |
 | 2026-10-23 | Layout: app in `src/`, spec in `docs/`, previous build in untracked `old_pro/` |
 | 2026-10-23 | profit-v1 amended: estimates stored at 4dp, settled amounts at 2dp. Verified against 20 real orders. |
-| 2026-10-23 | All decision gates D-01ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦D-10 closed; recorded as seven versioned policies |
+| 2026-10-23 | All decision gates D-01…D-10 closed; recorded as seven versioned policies |
+| 2026-10-24 | US-001 lockout values chosen (not specified by access-v1): threshold 5 failed attempts, lockout duration 15 minutes. Both are `access_policy` rows, reviewable by the Owner without a deploy. |
 
 ## Session log
 
@@ -103,5 +168,6 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-24 | **US-001 delivered and audited.** `src/access/` (passwords, repository, service), migration `002_access.sql`, session-backed `request_scope`, `POST`/`DELETE /auth/session`, `GET /stores/{store_id}`. **96 tests pass**, scan clean, 0 suppressions. Auditor failed it twice (6 blocking, then 1); F-01...F-12 all closed. Two pre-existing `test_api.py` tests were corrected -- they pinned the slice-0 placeholder and realised BT-08 with an *unauthenticated* caller, which the register defines as "request both as a scoped user". Both came out stricter; BT-08 write-path coverage preserved. Rate limiting still unimplemented (access-v1 gives no window/multiplier/cap) -- escalated, not invented. |
 | 2026-10-23 | Golden orders loaded: 20 real cases, profit-v1 verified against them. Found a workbook error (GR-06) and corrected estimate precision to 4dp. |
 | 2026-10-23 | Specification completed and all gates closed. Guardrail layer built and verified. Agent roster created. Slice plan written. Previous build moved to `old_pro/` and untracked. Stack decided. |

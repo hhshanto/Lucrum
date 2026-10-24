@@ -3,6 +3,8 @@ uvicorn[standard]==0.34.0
 psycopg[binary,pool]==3.2.3
 jinja2==3.1.5
 python-dotenv==1.0.1
+bcrypt==5.0.0
+pyotp==2.10.0
 
 # Dev / test
 pytest==8.3.4
