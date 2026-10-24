@@ -123,6 +123,11 @@ jobs:
           - 5432:5432
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucrum_test
+      # config.py refuses to default APP_ENV, deliberately -- its unsafe
+      # direction is reporting a production host as development. .env supplies
+      # it locally and is gitignored, so CI has to set it explicitly or every
+      # test that starts the app errors before it runs.
+      APP_ENV: development
     steps:
       - uses: actions/checkout@v4
 
