@@ -1911,3 +1911,238 @@ class TestF53ValidatorsAreActuallyExercised:
         row = _fetch_store_row(migrated_database, r.json()["data"]["id"])
         assert row["managed_from_year"] is None
         assert row["managed_from_month"] is None
+
+
+# ---------------------------------------------------------------------------
+# invariant-auditor pass 3 on 321302a -- F-55 through F-59.
+# ---------------------------------------------------------------------------
+
+
+class TestF55IdenticalPayloadIsAReplayNotADuplicateKeyConflict:
+    """F-55 (US-003 audit). The F-45 fix let ``repository.create_store``'s
+    insert run BEFORE ``audit.record`` -- an ordinary retry (same body,
+    same Idempotency-Key) hits ``stores_walmart_store_key_key`` first and
+    is reported as a 409 naming someone else's registration, never reaching
+    the replay path at all. This is the case idempotency exists to serve,
+    and it was the confidently wrong answer.
+    """
+
+    def test_f55_identical_payload_same_operation_id_is_a_replay_not_a_409(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f55-identical-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        # The SAME payload object, sent twice under the SAME operation_id --
+        # an honest retry, not an adversarial one. walmart_store_key is
+        # identical both times, which is exactly the input the F-50 test's
+        # own comment named and steered away from.
+        payload = _store_payload(name="F55 Identical Retry Store")
+
+        first = _post_store(client, token, payload, operation_id=op_id)
+        assert first.status_code == 201, first.text
+        first_id = first.json()["data"]["id"]
+
+        second = _post_store(client, token, payload, operation_id=op_id)
+        assert second.status_code == 200, second.text
+        assert second.json()["meta"]["replayed"] is True
+        assert second.json()["data"]["id"] == first_id
+
+        assert (
+            _count_stores_matching(
+                migrated_database, walmart_store_key=payload["walmart_store_key"]
+            )
+            == 1
+        )
+
+
+class TestF56TimezoneIsValidatedAgainstTheOneImplementation:
+    """F-56 (US-003 audit). ``currency_code`` is checked at both layers
+    (the request-model pattern and ``stores_currency_fmt``); ``timezone``
+    was checked at neither. ``clock.store_timezone`` is the one existing
+    implementation of "is this a real IANA zone" (001_baseline.sql:31 ties
+    the column to it by name) -- reused here, not duplicated.
+    """
+
+    def test_f56_create_rejects_an_unrecognised_timezone(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f56-create-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _post_store(client, token, _store_payload(timezone="Mars/Olympus"))
+        assert r.status_code == 422, r.text
+
+    def test_f56_create_accepts_a_valid_non_utc_iana_zone(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f56-create-valid-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _post_store(client, token, _store_payload(timezone="Asia/Tokyo"))
+        assert r.status_code == 201, r.text
+        assert r.json()["data"]["timezone"] == "Asia/Tokyo"
+
+    def test_f56_update_rejects_an_unrecognised_timezone(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F56 Update Timezone Store", timezone="America/New_York"
+            )
+            owner = _create_user(c, role="owner", password="f56-update-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"timezone": "Mars/Olympus"})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["timezone"] == "America/New_York"
+
+    def test_f56_update_accepts_a_valid_non_utc_iana_zone(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F56 Update Valid Timezone Store", timezone="America/New_York"
+            )
+            owner = _create_user(c, role="owner", password="f56-update-valid-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"timezone": "Europe/Berlin"})
+        assert r.status_code == 200, r.text
+        assert r.json()["data"]["timezone"] == "Europe/Berlin"
+
+
+class TestF57RoleCheckedBeforeDuplicateKeyCheck:
+    """F-57 (US-003 audit). ``require_can_create_store`` runs before any
+    database write is attempted -- unpinned, so moving it below the insert
+    would hand a non-Owner a 409 (confirming a key exists) rather than a
+    403, reachable before any scope check could intervene. Every other
+    AC-03 creation test uses a fresh key and would stay green regardless.
+    """
+
+    def test_f57_non_owner_posting_an_already_taken_key_gets_403_not_409(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f57-owner-pw")
+            manager = _create_user(c, role="manager", password="f57-manager-pw")
+        owner_token = _sign_in(client, owner, with_mfa=True)
+        manager_token = _sign_in(client, manager, with_mfa=False)
+
+        shared_key = f"F57-DUP-{uuid.uuid4().hex[:12]}"
+        first = _post_store(
+            client, owner_token, _store_payload(walmart_store_key=shared_key)
+        )
+        assert first.status_code == 201, first.text
+
+        second = _post_store(
+            client,
+            manager_token,
+            _store_payload(name="F57 Should Not Matter", walmart_store_key=shared_key),
+        )
+        assert second.status_code == 403, second.text
+        assert second.status_code != 409
+
+
+class TestF58StoreNoteRejectsUnknownFields:
+    """F-58 (US-003 audit). F-46's shape recurring one commit later:
+    ``StoreNote`` still has no ``extra='forbid'`` while both store models
+    do, on the endpoint whose own docstring claims to be the reference
+    pattern.
+    """
+
+    def test_f58_add_store_note_rejects_an_unknown_field(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F58 Note Unknown Field Store")
+            owner = _create_user(c, role="owner", password="f58-note-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = client.post(
+            f"/stores/{store_id}/notes",
+            json={"note": "hello", "visibility": "internal"},
+            headers={**_auth(token), "Idempotency-Key": _idempotency_key()},
+        )
+        assert r.status_code == 422, r.text
+
+
+class TestF59UniqueViolationReraisesOnAnUnrelatedConstraint:
+    """F-59 (US-003 audit). Neither re-raise branch (``service.py``'s
+    walmart_store_key check, ``audit.py``'s operation_id check) has a
+    reachable negative case in the HTTP suite -- treating *any*
+    ``UniqueViolation`` as the named special case would still pass every
+    existing test. Both are pinned directly, by monkeypatching the
+    statement that raises.
+    """
+
+    def test_f59_create_store_reraises_a_unique_violation_on_a_different_constraint(
+        self, conn
+    ):
+        from src.scoping import StoreScope
+        from src.stores import repository, service as stores_service
+
+        real_create_store = repository.create_store
+
+        def _boom(*args, **kwargs):
+            raise psycopg.errors.UniqueViolation("some other constraint fired")
+
+        repository.create_store = _boom
+        try:
+            with pytest.raises(psycopg.errors.UniqueViolation):
+                stores_service.create_store(
+                    conn,
+                    StoreScope.owner(actor_id=uuid.uuid4()),
+                    actor_id=None,
+                    role="owner",
+                    fields={
+                        "name": "F59 Store",
+                        "walmart_store_key": f"F59-{uuid.uuid4().hex[:12]}",
+                        "timezone": "America/New_York",
+                        "reporting_currency_code": "USD",
+                        "managed_from_year": 2026,
+                        "managed_from_month": 7,
+                    },
+                    operation_id=str(uuid.uuid4()),
+                )
+        finally:
+            repository.create_store = real_create_store
+
+    def test_f59_audit_record_reraises_a_unique_violation_on_a_different_constraint(
+        self, conn
+    ):
+        from src import audit
+
+        op_id = str(uuid.uuid4())
+        # A real row already exists under this operation_id, from a genuine
+        # prior write -- without this, find_by_operation's own "existing is
+        # None" fallback would re-raise the injected exception anyway for an
+        # unrelated reason, and the guard being tested could be deleted
+        # without this test ever noticing. With a real row present, removing
+        # the guard changes what gets raised: DuplicateOperation instead of
+        # the injected UniqueViolation.
+        audit.record(
+            conn,
+            audit.AuditEvent(
+                event_type="f59_probe_original",
+                entity_type="store",
+                operation_id=op_id,
+            ),
+        )
+
+        real_execute = conn.execute
+
+        def _spy_execute(sql, *args, **kwargs):
+            if "insert into audit_events" in str(sql):
+                raise psycopg.errors.UniqueViolation("some other constraint fired")
+            return real_execute(sql, *args, **kwargs)
+
+        conn.execute = _spy_execute
+        try:
+            with pytest.raises(psycopg.errors.UniqueViolation):
+                audit.record(
+                    conn,
+                    audit.AuditEvent(
+                        event_type="f59_probe_second",
+                        entity_type="store",
+                        operation_id=op_id,
+                    ),
+                )
+        finally:
+            conn.execute = real_execute

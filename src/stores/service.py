@@ -188,6 +188,25 @@ def create_store(
     """
     require_can_create_store(role)
 
+    # F-55 (US-003 audit): resolve operation_id BEFORE attempting the insert,
+    # not after. An honest retry resends the identical body under the
+    # identical Idempotency-Key, and that body's walmart_store_key is
+    # necessarily the one already registered -- the insert alone cannot
+    # tell "you already did this" apart from "someone else has this key".
+    # Checking the operation ledger first means the one case idempotency
+    # exists to serve never reaches the uniqueness constraint at all; the
+    # UniqueViolation handler below remains as a concurrency backstop for
+    # the case where two requests race past this check simultaneously (one
+    # loses the audit insert, not the uniqueness check, and is handled the
+    # same way there).
+    existing_event = audit.find_by_operation(conn, operation_id)
+    if existing_event is not None:
+        audit.check_replay_target(
+            existing_event, event_type="store_created", entity_type="store"
+        )
+        existing = repository.get_store(conn, scope, existing_event["entity_id"])
+        return existing, True
+
     try:
         with conn.transaction():
             try:
@@ -224,6 +243,9 @@ def create_store(
                 ),
             )
     except audit.DuplicateOperation as replay:
+        # F-55: a concurrent racer won between the check above and this
+        # call's own insert -- the exact same replay discipline applies,
+        # it just could not be resolved by the pre-check this time.
         # F-31 (US-003 audit): a DuplicateOperation alone does not mean this
         # call is a replay of *this* request -- the same Idempotency-Key
         # could have been spent on an entirely different write (a note, a

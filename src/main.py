@@ -17,12 +17,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src import audit
 from src.access import repository as access_repository
 from src.access import service as access_service
-from src.clock import utc_now
+from src.clock import InvalidTimezone, store_timezone, utc_now
 from src.config import ConfigurationMissing, load_settings
 from src.db.connection import close_pool, connection, init_pool
 from src.scoping import Forbidden, OutOfScope, StoreScope
@@ -371,7 +371,16 @@ def delete_session(request: Request) -> Response:
 
 
 class StoreNote(BaseModel):
-    """A trivial write, existing to prove the write pattern end to end."""
+    """A trivial write, existing to prove the write pattern end to end.
+
+    F-58 (US-003 audit): ``extra="forbid"`` -- F-46's gap recurring one
+    commit later. This endpoint's own docstring claims to be the pattern
+    every later write endpoint copies; it must carry every rule the
+    pattern claims, including this one, which both store request models
+    already do (F-44).
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     note: str = Field(min_length=1, max_length=500)
     reason: str | None = None
@@ -506,6 +515,32 @@ def get_store_detail(
     }
 
 
+def _validated_timezone(value: str | None) -> str | None:
+    """Reject anything that is not either unset or a real IANA zone.
+
+    F-56 (US-003 audit): ``clock.store_timezone`` is the one existing
+    implementation of this judgement (``001_baseline.sql:31`` ties the
+    column to it by name: "period-v1: IANA identifier... see
+    clock.InvalidTimezone") -- reused here rather than inventing a second
+    check, per Invariant #6's inverse: a second, independent timezone
+    validator is exactly how the two would diverge. ``None`` is passed
+    through unchanged (period-v1 / AC-02: a store may be created or stay
+    without a timezone at all; that is "unconfigured", not "invalid", and
+    ``activation_blockers`` already names it). Only a *given*, unresolvable
+    string is rejected -- the gap this closes is that ``activation_blockers``
+    cannot tell "unconfigured" (``None``) apart from "configured with
+    nonsense" (a non-``None`` string ``clock.store_timezone`` cannot
+    resolve); both read as "configured" to a non-null check alone.
+    """
+    if value is None:
+        return None
+    try:
+        store_timezone(value)
+    except InvalidTimezone as exc:
+        raise ValueError(str(exc)) from exc
+    return value
+
+
 class StoreCreateRequest(BaseModel):
     """US-003 AC-01. Field names follow the column names in
     ``001_baseline.sql`` with one adjustment -- ``currency_code`` rather than
@@ -545,6 +580,11 @@ class StoreCreateRequest(BaseModel):
     currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     managed_from_year: int | None = None
     managed_from_month: int | None = Field(default=None, ge=1, le=12)
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_a_recognised_iana_zone(cls, value: str | None) -> str | None:
+        return _validated_timezone(value)
 
     @model_validator(mode="after")
     def _managed_from_paired(self) -> "StoreCreateRequest":
@@ -644,6 +684,15 @@ class StoreUpdateRequest(BaseModel):
     currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     managed_from_year: int | None = None
     managed_from_month: int | None = Field(default=None, ge=1, le=12)
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_is_a_recognised_iana_zone(cls, value: str | None) -> str | None:
+        # Runs before _no_field_may_be_cleared below: an explicit null still
+        # passes through here unchanged (this validator only judges a given
+        # string), and is rejected afterwards by the clearing check, not
+        # mistaken here for "unconfigured".
+        return _validated_timezone(value)
 
     @model_validator(mode="after")
     def _no_field_may_be_cleared(self) -> "StoreUpdateRequest":
