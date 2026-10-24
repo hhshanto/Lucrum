@@ -25,14 +25,21 @@ _COLUMNS = """
 """
 
 
-def list_stores(
-    conn: psycopg.Connection, scope: StoreScope, *, include_inactive: bool = False
-) -> list[dict[str, Any]]:
+def list_stores(conn: psycopg.Connection, scope: StoreScope) -> list[dict[str, Any]]:
+    """Stores the caller's scope permits.
+
+    ``is_active`` is not a scope or visibility filter (B-7 / F-21): a store's
+    active/inactive state has no bearing on whether it is offered to a caller
+    who is otherwise in scope. An inactive store a Manager is assigned to is
+    still listed here, exactly like any other in-scope store. ``scope`` is the
+    only filter composed into this query -- there is deliberately no
+    ``include_inactive`` escape hatch for a future call site to default away.
+
+    Whether an inactive store accepts *writes* is a separate, unsettled
+    question and is untouched by this function.
+    """
     where, params = scope.sql_filter("id")
-    sql = f"select {_COLUMNS} from stores where {where}"
-    if not include_inactive:
-        sql += " and is_active"
-    sql += " order by name"
+    sql = f"select {_COLUMNS} from stores where {where} order by name"
     return conn.execute(sql, params).fetchall()
 
 

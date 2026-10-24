@@ -92,9 +92,7 @@ class TestScopedQueries:
                values ('Other', 'TEST-002') returning id"""
         ).fetchone()["id"]
 
-        rows = repository.list_stores(
-            conn, StoreScope.assigned(None, [store_id]), include_inactive=True
-        )
+        rows = repository.list_stores(conn, StoreScope.assigned(None, [store_id]))
         ids = [r["id"] for r in rows]
         assert store_id in ids
         assert other not in ids
