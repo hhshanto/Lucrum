@@ -229,6 +229,42 @@ def _count_stores_matching(url: str, *, walmart_store_key: str) -> int:
         ).fetchone()[0]
 
 
+# F-28: session-breaking helpers, mirroring test_us001_sign_in.py's own
+# direct-SQL manipulation of the same tables.
+
+
+def _expire_session(url: str, user_id) -> None:
+    with psycopg.connect(url, row_factory=dict_row) as c:
+        c.execute(
+            """
+            update user_sessions
+               set expires_at = now() - interval '1 minute'
+             where user_id = %s and revoked_at is null
+            """,
+            (user_id,),
+        )
+        c.commit()
+
+
+def _revoke_session(url: str, user_id) -> None:
+    with psycopg.connect(url, row_factory=dict_row) as c:
+        c.execute(
+            """
+            update user_sessions
+               set revoked_at = now()
+             where user_id = %s and revoked_at is null
+            """,
+            (user_id,),
+        )
+        c.commit()
+
+
+def _deactivate_user(url: str, user_id) -> None:
+    with psycopg.connect(url, row_factory=dict_row) as c:
+        c.execute("update users set is_active = false where id = %s", (user_id,))
+        c.commit()
+
+
 @pytest.fixture
 def client(migrated_database):
     with TestClient(main.app) as c:
@@ -628,6 +664,25 @@ class TestAC03AuthorizationMatrix:
         assert nonexistent.status_code == 404
         assert out_of_scope.json() == nonexistent.json()
 
+        # F-41: the F-24 regression, reintroduced on the PATCH path -- status
+        # and body matching is not enough; a header present only for the
+        # store that actually exists (an ETag, say) would disclose exactly
+        # the distinction this test exists to hide. `date` varies between
+        # any two sequential responses regardless and is excluded for that
+        # reason alone, exactly as test_us002's own F-24 fix does.
+        excluded_headers = {"date"}
+        out_of_scope_headers = {
+            k.lower(): v
+            for k, v in out_of_scope.headers.items()
+            if k.lower() not in excluded_headers
+        }
+        nonexistent_headers = {
+            k.lower(): v
+            for k, v in nonexistent.headers.items()
+            if k.lower() not in excluded_headers
+        }
+        assert out_of_scope_headers == nonexistent_headers
+
     def test_ac03_rejection_is_403_not_404_for_a_manager_assigned_to_the_store(
         self, client, migrated_database
     ):
@@ -718,11 +773,24 @@ class TestAC04RenamePreservesIdentityAndLinks:
             manager = _create_user(c, role="manager", password="ac04-assign-mgr-pw")
             _assign(c, manager["id"], store_id)
 
+            # F-38: the module docstring claims a decoy is seeded in every
+            # scoping-shaped test; this one did not carry one, which is
+            # exactly how F-23 happened elsewhere -- a false claim about
+            # hermeticity. A different user holds the only assignment to a
+            # second store, so a scope resolver that dropped
+            # `where user_id = %s` cannot pass by accident even on a fresh
+            # database.
+            decoy_store = str(_create_store_db(c, "AC04 Assignment Decoy Store"))
+            decoy = _create_user(c, role="manager", password="ac04-assign-decoy-pw")
+            _assign(c, decoy["id"], decoy_store)
+
         owner_token = _sign_in(client, owner, with_mfa=True)
         manager_token = _sign_in(client, manager, with_mfa=False)
 
         before = client.get("/stores", headers=_auth(manager_token))
-        assert store_id in {row["id"] for row in before.json()["data"]}
+        before_ids = {row["id"] for row in before.json()["data"]}
+        assert store_id in before_ids
+        assert decoy_store not in before_ids
 
         renamed = _patch_store(
             client, owner_token, store_id, {"name": "AC04 Assignment After Rename"}
@@ -732,6 +800,7 @@ class TestAC04RenamePreservesIdentityAndLinks:
         after = client.get("/stores", headers=_auth(manager_token))
         after_rows = {row["id"]: row["name"] for row in after.json()["data"]}
         assert store_id in after_rows
+        assert decoy_store not in after_rows
         assert after_rows[store_id] == "AC04 Assignment After Rename"
 
         detail = client.get(f"/stores/{store_id}", headers=_auth(manager_token))
@@ -797,7 +866,13 @@ class TestAC04RenamePreservesIdentityAndLinks:
         row = rows[0]
         assert str(row["store_id"]) == store_id
         assert str(row["entity_id"]) == store_id
-        assert row["actor_id"] is not None
+        # F-37: identity-pinned, not merely "somebody" -- "is not None" alone
+        # survives attributing the event to any other user at all.
+        assert str(row["actor_id"]) == str(owner["id"])
+        # F-37 / F-27: a plain rename (no timezone in the body) must be
+        # recorded under the spec-named general-case event
+        # (api-service-design.md:1188), never the timezone-specific one.
+        assert row["event_type"] == "store_settings_updated"
         # The rename must be discoverable from the audit payload somehow --
         # not pinning an exact field name/shape, only that the new name is
         # actually represented in the record of what happened.
@@ -854,3 +929,669 @@ class TestStoreTimestampsAreUtc:
         assert row["created_at"].utcoffset() == timedelta(0)
         assert row["updated_at"].tzinfo is not None
         assert row["updated_at"].utcoffset() == timedelta(0)
+
+
+# ---------------------------------------------------------------------------
+# invariant-auditor findings on commit d0c0d17 -- F-26 through F-41.
+# ---------------------------------------------------------------------------
+
+
+class TestF26ManagedFromIsOwnerOnlyInterim:
+    """F-26 / B-13 (US-003 audit). The capability matrix alone
+    (walmart-user-stories.md:671, "Change store settings: Owner yes, Admin
+    yes") would let an Admin move managed_from. walmart-user-stories.md:171
+    ("set explicitly by the Owner"), database-schema.md:193 ("Owner may
+    change it, audited") and walmart-user-stories.md:693 (Admin may not
+    "re-post an order into or out of a protected period", which is exactly
+    the effect of moving managed_from across the pre_onboarding boundary)
+    all point the other way. Interim handling, an Owner decision: moving
+    managed_from is Owner-only, independent of the general
+    settings-change permission -- a per-field check, not a second endpoint.
+    """
+
+    def test_f26_admin_can_change_name(self, client, migrated_database):
+        """Control: the field-specific restriction must not have widened
+        into a blanket Admin lockout -- Admin still has the general
+        settings-change capability for every other field."""
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F26 Admin Name Store")
+            admin = _create_user(c, role="admin", password="f26-admin-name-pw")
+            _assign(c, admin["id"], store_id)
+        token = _sign_in(client, admin, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"name": "F26 Admin Renamed"})
+        assert r.status_code == 200, r.text
+
+    def test_f26_admin_cannot_change_managed_from(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F26 Admin Managed From Store")
+            admin = _create_user(c, role="admin", password="f26-admin-mf-pw")
+            _assign(c, admin["id"], store_id)
+        token = _sign_in(client, admin, with_mfa=True)
+
+        r = _patch_store(
+            client, token, store_id, {"managed_from_year": 2027, "managed_from_month": 1}
+        )
+        assert r.status_code == 403, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["managed_from_year"] == 2026
+        assert row["managed_from_month"] == 7
+
+    def test_f26_admin_cannot_change_managed_from_even_combined_with_an_allowed_field(
+        self, client, migrated_database
+    ):
+        """The whole request is rejected, not partially applied -- a
+        request that also renames must not let the name change through
+        while the managed_from change is merely dropped, or vice versa."""
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F26 Admin Combined Store")
+            admin = _create_user(c, role="admin", password="f26-admin-combined-pw")
+            _assign(c, admin["id"], store_id)
+        token = _sign_in(client, admin, with_mfa=True)
+
+        r = _patch_store(
+            client,
+            token,
+            store_id,
+            {
+                "name": "F26 Should Not Apply",
+                "managed_from_year": 2027,
+                "managed_from_month": 1,
+            },
+        )
+        assert r.status_code == 403, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["name"] == "F26 Admin Combined Store"
+        assert row["managed_from_year"] == 2026
+
+    def test_f26_owner_can_change_managed_from(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F26 Owner Managed From Store")
+            owner = _create_user(c, role="owner", password="f26-owner-mf-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(
+            client, token, store_id, {"managed_from_year": 2027, "managed_from_month": 1}
+        )
+        assert r.status_code == 200, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["managed_from_year"] == 2027
+        assert row["managed_from_month"] == 1
+
+    def test_f26_manager_cannot_change_managed_from(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F26 Manager Managed From Store")
+            manager = _create_user(c, role="manager", password="f26-manager-mf-pw")
+            _assign(c, manager["id"], store_id)
+        token = _sign_in(client, manager, with_mfa=False)
+
+        r = _patch_store(
+            client, token, store_id, {"managed_from_year": 2027, "managed_from_month": 1}
+        )
+        assert r.status_code == 403, r.text
+
+
+class TestF27EventTypeDistinguishesTimezoneChange:
+    """F-27 (US-003 audit). api-service-design.md names
+    store_timezone_changed (:1195) and store_settings_updated (:1188)
+    explicitly -- neither is a B-12 gap. A timezone change moves every
+    month boundary already resolved against the old value (BR-14); a
+    cosmetic rename does not, and the audit log must be able to tell the
+    two apart without reading before/after state.
+    """
+
+    def test_f27_timezone_change_emits_store_timezone_changed(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F27 Timezone Change Store", timezone="America/New_York"
+            )
+            owner = _create_user(c, role="owner", password="f27-tz-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        r = _patch_store(
+            client, token, store_id, {"timezone": "America/Chicago"}, operation_id=op_id
+        )
+        assert r.status_code == 200, r.text
+
+        rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(rows) == 1
+        assert rows[0]["event_type"] == "store_timezone_changed"
+
+    def test_f27_name_change_emits_the_general_settings_event_not_the_timezone_one(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F27 Name Only Change Store")
+            owner = _create_user(c, role="owner", password="f27-name-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        r = _patch_store(
+            client, token, store_id, {"name": "F27 Name Only Renamed"}, operation_id=op_id
+        )
+        assert r.status_code == 200, r.text
+
+        rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(rows) == 1
+        assert rows[0]["event_type"] == "store_settings_updated"
+        assert rows[0]["event_type"] != "store_timezone_changed"
+
+    def test_f27_timezone_changed_together_with_name_still_emits_the_timezone_event(
+        self, client, migrated_database
+    ):
+        """A timezone move is the more significant fact and must not be
+        lost inside a generic settings-updated entry just because the
+        caller also renamed the store in the same request."""
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F27 Combined Change Store", timezone="America/New_York"
+            )
+            owner = _create_user(c, role="owner", password="f27-combined-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        r = _patch_store(
+            client,
+            token,
+            store_id,
+            {"name": "F27 Combined Renamed", "timezone": "America/Denver"},
+            operation_id=op_id,
+        )
+        assert r.status_code == 200, r.text
+
+        rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(rows) == 1
+        assert rows[0]["event_type"] == "store_timezone_changed"
+
+
+class TestF28AuthenticationGateForWrites:
+    """F-28 (US-003 audit). F-01 (US-001) all over again, on two endpoints
+    that had no authentication test of their own at all -- deleting
+    ``if not header: raise SessionInvalid(...)`` from the shared gate
+    (``main._authenticate_request``, formerly duplicated verbatim inside
+    ``request_actor``) turned an anonymous ``POST /stores`` into an
+    unhandled 500 while the rest of the suite stayed green. See the session
+    report for the mutation run against these tests specifically.
+    """
+
+    # -- POST /stores -----------------------------------------------------
+
+    def test_f28_post_stores_rejects_no_credential(self, client, migrated_database):
+        r = client.post(
+            "/stores", json=_store_payload(), headers={"Idempotency-Key": _idempotency_key()}
+        )
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_post_stores_rejects_a_malformed_credential(self, client, migrated_database):
+        r = client.post(
+            "/stores",
+            json=_store_payload(),
+            headers={
+                "Authorization": "Basic not-a-bearer-token",
+                "Idempotency-Key": _idempotency_key(),
+            },
+        )
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_post_stores_rejects_an_expired_session(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f28-post-expired-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _expire_session(migrated_database, owner["id"])
+
+        r = _post_store(client, token, _store_payload())
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_post_stores_rejects_a_revoked_session(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f28-post-revoked-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _revoke_session(migrated_database, owner["id"])
+
+        r = _post_store(client, token, _store_payload())
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_post_stores_rejects_a_deactivated_user(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f28-post-deact-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _deactivate_user(migrated_database, owner["id"])
+
+        r = _post_store(client, token, _store_payload())
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    # -- PATCH /stores/{id} -------------------------------------------------
+
+    def test_f28_patch_store_rejects_no_credential(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F28 Patch No Credential Store")
+
+        r = client.patch(
+            f"/stores/{store_id}",
+            json={"name": "x"},
+            headers={"Idempotency-Key": _idempotency_key()},
+        )
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_patch_store_rejects_a_malformed_credential(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F28 Patch Malformed Store")
+
+        r = client.patch(
+            f"/stores/{store_id}",
+            json={"name": "x"},
+            headers={"Authorization": "Token garbage", "Idempotency-Key": _idempotency_key()},
+        )
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_patch_store_rejects_an_expired_session(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F28 Patch Expired Store")
+            owner = _create_user(c, role="owner", password="f28-patch-expired-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _expire_session(migrated_database, owner["id"])
+
+        r = _patch_store(client, token, store_id, {"name": "x"})
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_patch_store_rejects_a_revoked_session(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F28 Patch Revoked Store")
+            owner = _create_user(c, role="owner", password="f28-patch-revoked-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _revoke_session(migrated_database, owner["id"])
+
+        r = _patch_store(client, token, store_id, {"name": "x"})
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_f28_patch_store_rejects_a_deactivated_user(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F28 Patch Deactivated Store")
+            owner = _create_user(c, role="owner", password="f28-patch-deact-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+        _deactivate_user(migrated_database, owner["id"])
+
+        r = _patch_store(client, token, store_id, {"name": "x"})
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+class TestF29ResponseNeverDefaultsMissingConfiguration:
+    """F-29 (US-003 audit). AC-02 was proved at the database
+    (TestAC02MissingConfigurationIsIdentified above) but never at the HTTP
+    response -- mutating ``_store_body`` to
+    ``store["timezone"] or "UTC"`` kept all 135 tests green beforehand,
+    because every existing assertion read the database row directly and
+    none inspected these response keys. SC-05 does not catch this either:
+    it is scoped to currency. These assertions check for explicit
+    presence of a null value, not merely its absence -- an omitted key is
+    ambiguous ('did not ask' vs 'actively unset'); a present ``null`` is
+    not.
+    """
+
+    def test_f29_list_detail_create_and_update_all_report_null_explicitly(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f29-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        created = _post_store(
+            client, token, _without(_store_payload(), "timezone", "currency_code")
+        )
+        assert created.status_code == 201, created.text
+        store_id = created.json()["data"]["id"]
+
+        detail = client.get(f"/stores/{store_id}", headers=_auth(token))
+        assert detail.status_code == 200
+
+        for label, body in (
+            ("create", created.json()["data"]),
+            ("detail", detail.json()["data"]),
+        ):
+            assert "timezone" in body, f"{label}: timezone key must be present, not omitted"
+            assert body["timezone"] is None, f"{label}: timezone must be null, not defaulted"
+            assert "currency_code" in body, f"{label}: currency_code key must be present"
+            assert (
+                body["currency_code"] is None
+            ), f"{label}: currency_code must be null, not defaulted"
+
+        listing = client.get("/stores", headers=_auth(token))
+        assert listing.status_code == 200
+        [list_row] = [r for r in listing.json()["data"] if r["id"] == store_id]
+        assert "timezone" in list_row and list_row["timezone"] is None
+        assert "currency_code" in list_row and list_row["currency_code"] is None
+
+        # PATCH touching an unrelated field (name) must still report the
+        # still-missing configuration as null, not as a value invented by
+        # the update path.
+        patched = _patch_store(client, token, store_id, {"name": "F29 Renamed"})
+        assert patched.status_code == 200, patched.text
+        patched_body = patched.json()["data"]
+        assert "timezone" in patched_body and patched_body["timezone"] is None
+        assert "currency_code" in patched_body and patched_body["currency_code"] is None
+
+
+class TestF30ScopeIsRequiredForTheIdentityUpdate:
+    """F-30 (US-003 audit). ``scoping.py``'s own module docstring advertises
+    "scope is a required argument ... forgetting a scope becomes a type
+    error at the call site", and ``repository.py``'s advertises the filter
+    being "composed into the SQL rather than applied afterwards" --
+    ``update_store_identity`` honoured neither before this fix.
+    """
+
+    def test_f30_update_store_identity_requires_a_scope(self, conn):
+        from src.stores import repository
+
+        with pytest.raises(TypeError):
+            repository.update_store_identity(conn, uuid.uuid4(), {"name": "x"})  # no scope
+
+    def test_f30_scope_predicate_is_composed_into_the_update_statement(self, conn):
+        """A rewrite that drops the scope filter from the UPDATE's WHERE
+        (trusting only the caller's earlier, separate get_store check)
+        passes every *behavioural* assertion elsewhere in this file, since
+        the service layer always calls get_store first -- this spies on the
+        statement actually sent to Postgres and pins that the UPDATE itself
+        carries the scope predicate.
+        """
+        from src.scoping import StoreScope
+        from src.stores import repository
+
+        row = conn.execute(
+            """
+            insert into stores (name, walmart_store_key, timezone,
+                                reporting_currency_code, managed_from_year,
+                                managed_from_month, is_active)
+            values (%s, %s, 'America/New_York', 'USD', 2026, 7, true)
+            returning id
+            """,
+            (f"F30 store {uuid.uuid4().hex[:8]}", f"F30-{uuid.uuid4().hex[:12]}"),
+        ).fetchone()
+        store_id = row["id"]
+
+        # A scope that genuinely permits this store, so the statement
+        # captured is the real one and the update actually succeeds.
+        scope = StoreScope.assigned(actor_id=uuid.uuid4(), store_ids=[store_id])
+
+        captured: list[tuple[str, object]] = []
+        real_execute = conn.execute
+
+        def _spy_execute(query, params=None, **kwargs):
+            captured.append((str(query), params))
+            return real_execute(query, params, **kwargs)
+
+        conn.execute = _spy_execute
+        try:
+            updated = repository.update_store_identity(
+                conn, scope, store_id, {"name": "F30 Renamed"}
+            )
+        finally:
+            conn.execute = real_execute
+
+        assert updated["name"] == "F30 Renamed"
+
+        where_clause, scope_params = scope.sql_filter("id")
+        update_statements = [
+            (sql, params) for sql, params in captured if "update stores" in sql.lower()
+        ]
+        assert update_statements, (
+            "no UPDATE statement against stores was captured; statements sent "
+            f"were: {[s for s, _ in captured]!r}"
+        )
+        matching = [(sql, params) for sql, params in update_statements if where_clause in sql]
+        assert matching, (
+            "the scope predicate was never composed into the UPDATE statement; "
+            f"statements sent were: {[s for s, _ in captured]!r}"
+        )
+        sql, params = matching[0]
+        for key, value in scope_params.items():
+            assert params.get(key) == value
+
+    def test_f30_update_raises_out_of_scope_for_a_store_outside_the_given_scope(self, conn):
+        """Defence in depth: even if a future caller skipped the earlier
+        get_store check, the UPDATE itself must still refuse the row."""
+        from src.scoping import OutOfScope, StoreScope
+        from src.stores import repository
+
+        row = conn.execute(
+            """
+            insert into stores (name, walmart_store_key, timezone,
+                                reporting_currency_code, managed_from_year,
+                                managed_from_month, is_active)
+            values (%s, %s, 'America/New_York', 'USD', 2026, 7, true)
+            returning id
+            """,
+            (f"F30 oos store {uuid.uuid4().hex[:8]}", f"F30-OOS-{uuid.uuid4().hex[:12]}"),
+        ).fetchone()
+        store_id = row["id"]
+
+        empty_scope = StoreScope.assigned(actor_id=uuid.uuid4(), store_ids=[])
+
+        with pytest.raises(OutOfScope):
+            repository.update_store_identity(
+                conn, empty_scope, store_id, {"name": "should not apply"}
+            )
+
+        unchanged = conn.execute(
+            "select name from stores where id = %s", (store_id,)
+        ).fetchone()
+        assert unchanged["name"] != "should not apply"
+
+
+class TestF31ReplayIsBoundToEntityAndEventType:
+    """F-31 (US-003 audit). ``DuplicateOperation`` alone only says "this
+    operation_id has been used before" -- not "for this request". Both
+    scenarios below are adversarial replays the test author deliberately
+    left ``assert second.status_code in (200, 409)`` open for; the
+    pre-fix implementation always took the 200 branch.
+    """
+
+    def test_f31_same_key_against_two_different_stores_is_a_conflict_not_a_replay(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_a = _create_store_db(c, "F31 Store A")
+            store_b = _create_store_db(c, "F31 Store B")
+            owner = _create_user(c, role="owner", password="f31-two-stores-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        first = _patch_store(client, token, store_a, {"name": "F31 A Renamed"}, operation_id=op_id)
+        assert first.status_code == 200, first.text
+
+        second = _patch_store(
+            client, token, store_b, {"name": "F31 B Should Not Apply"}, operation_id=op_id
+        )
+        assert second.status_code == 409, second.text
+
+        row_b = _fetch_store_row(migrated_database, store_b)
+        assert row_b["name"] == "F31 Store B", "a key spent on store A must not touch store B"
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+        assert str(audit_rows[0]["entity_id"]) == str(store_a)
+
+    def test_f31_same_key_reused_across_a_different_operation_type_is_a_conflict(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F31 Note Then Create Store")
+            owner = _create_user(c, role="owner", password="f31-cross-op-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        note = client.post(
+            f"/stores/{store_id}/notes",
+            json={"note": "F31 cross-operation key"},
+            headers={**_auth(token), "Idempotency-Key": op_id},
+        )
+        assert note.status_code == 201, note.text
+
+        create_payload = _store_payload(name="F31 Should Not Be Created")
+        reused = _post_store(client, token, create_payload, operation_id=op_id)
+        assert reused.status_code == 409, reused.text
+
+        assert (
+            _count_stores_matching(
+                migrated_database, walmart_store_key=create_payload["walmart_store_key"]
+            )
+            == 0
+        )
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+        assert audit_rows[0]["event_type"] == "store_note_added"
+
+
+class TestF32UpdateValidationMatchesCreate:
+    """F-32 (US-003 audit). ``{"name": null}`` was "set" under
+    ``exclude_unset=True`` -> ``set name = NULL`` against a ``NOT NULL``
+    column -> an unhandled 500 on a syntactically valid request.
+    ``{"name": ""}`` renamed to empty string, which create already forbids.
+    Decided: explicit null is rejected for every field -- no document
+    grants any role the power to blank a store's timezone, currency or
+    managed_from once a value exists. Omit the field entirely to leave it
+    unchanged; that path is unaffected (see the control test below).
+    """
+
+    def test_f32_explicit_null_name_is_rejected_not_a_500(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F32 Null Name Store")
+            owner = _create_user(c, role="owner", password="f32-null-name-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"name": None})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["name"] == "F32 Null Name Store"
+
+    def test_f32_empty_string_name_is_rejected(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F32 Empty Name Store")
+            owner = _create_user(c, role="owner", password="f32-empty-name-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"name": ""})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["name"] == "F32 Empty Name Store"
+
+    def test_f32_explicit_null_timezone_is_rejected(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F32 Null Timezone Store", timezone="America/Chicago"
+            )
+            owner = _create_user(c, role="owner", password="f32-null-tz-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"timezone": None})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["timezone"] == "America/Chicago"
+
+    def test_f32_explicit_null_currency_code_is_rejected(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F32 Null Currency Store", reporting_currency_code="CAD"
+            )
+            owner = _create_user(c, role="owner", password="f32-null-cur-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"currency_code": None})
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["reporting_currency_code"] == "CAD"
+
+    def test_f32_explicit_null_managed_from_is_rejected(self, client, migrated_database):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F32 Null Managed From Store")
+            owner = _create_user(c, role="owner", password="f32-null-mf-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(
+            client,
+            token,
+            store_id,
+            {"managed_from_year": None, "managed_from_month": None},
+        )
+        assert r.status_code == 422, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["managed_from_year"] == 2026
+        assert row["managed_from_month"] == 7
+
+    def test_f32_omitting_a_field_entirely_still_leaves_it_unchanged(
+        self, client, migrated_database
+    ):
+        """Control: the fix rejects explicit null without breaking the
+        ordinary, already-tested 'omit to leave unchanged' path."""
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c, "F32 Omit Control Store", timezone="America/Chicago"
+            )
+            owner = _create_user(c, role="owner", password="f32-omit-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"name": "F32 Omit Control Renamed"})
+        assert r.status_code == 200, r.text
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["name"] == "F32 Omit Control Renamed"
+        assert row["timezone"] == "America/Chicago"
+
+
+class TestF36NameLengthIsNotArbitrarilyCapped:
+    def test_f36_a_long_name_is_accepted_on_create(self, client, migrated_database):
+        """F-36 (US-003 audit): max_length=200 was invented -- ``name`` is
+        an unconstrained ``text`` column (001_baseline.sql). A
+        300-character name must be accepted, not rejected by a length
+        nobody specified."""
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f36-long-name-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        long_name = "F36 Long Name " + ("x" * 300)
+        r = _post_store(client, token, _store_payload(name=long_name))
+        assert r.status_code == 201, r.text
+        assert r.json()["data"]["name"] == long_name
+
+
+class TestF39EmptyPatchIsANoOp:
+    def test_f39_empty_patch_body_writes_no_audit_event_or_timestamp_bump(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F39 Empty Patch Store")
+            owner = _create_user(c, role="owner", password="f39-empty-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        before_row = _fetch_store_row(migrated_database, store_id)
+
+        op_id = _idempotency_key()
+        r = _patch_store(client, token, store_id, {}, operation_id=op_id)
+        assert r.status_code == 200, r.text
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert audit_rows == [], "an empty patch must not write a spurious audit event"
+
+        after_row = _fetch_store_row(migrated_database, store_id)
+        assert after_row["updated_at"] == before_row["updated_at"], (
+            "an empty patch must not bump updated_at for a change that did not happen"
+        )

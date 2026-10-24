@@ -122,21 +122,39 @@ _IDENTITY_COLUMNS = {
 
 
 def update_store_identity(
-    conn: psycopg.Connection, store_id: uuid.UUID, fields: dict[str, Any]
+    conn: psycopg.Connection,
+    scope: StoreScope,
+    store_id: uuid.UUID,
+    fields: dict[str, Any],
 ) -> dict[str, Any]:
     """Update one or more identity fields on an existing store.
 
     US-003 AC-04: only the columns actually present in ``fields`` are
     touched -- a rename that supplies only ``name`` must not disturb
     ``timezone``, ``reporting_currency_code``, ``managed_from_year``,
-    ``managed_from_month``, ``is_active`` or ``created_at``. The caller
-    (``src.stores.service``) is responsible for the scope check (``id``
-    must already be known to exist and be in scope) before calling this --
-    this function performs the write unconditionally against the given id.
+    ``managed_from_month``, ``is_active`` or ``created_at``.
+
+    F-30 (US-003 audit): ``scope`` is a required argument, matching
+    ``get_store`` and ``list_stores`` above -- forgetting it is a
+    ``TypeError`` at the call site, not a data leak discovered later -- and
+    its filter is composed directly into this statement's ``WHERE``, never
+    checked in Python after the fact. The caller (``src.stores.service``)
+    still performs its own scoped read first (to answer 404 with the right
+    shape and to capture "before" values for the audit event), but this
+    statement does not merely trust that earlier read: it is scoped again,
+    here, independently, in the one statement that actually writes.
+
+    Raises ``OutOfScope`` if ``store_id`` does not match ``scope`` (or does
+    not exist) -- defence in depth alongside the caller's own prior check,
+    not a replacement for a 404 response shape the caller still owns.
 
     Unknown keys in ``fields`` raise ``KeyError`` rather than being silently
     ignored or interpolated -- the allowlist above is the only thing
     standing between a request field name and a SQL column name.
+
+    B-9 (open): whether an inactive store accepts writes at all is not
+    settled here either, exactly as ``list_stores`` above notes for reads --
+    this function has no ``is_active`` filter of its own.
     """
     set_parts = ["updated_at = now()"]
     params: dict[str, Any] = {"store_id": store_id}
@@ -145,13 +163,19 @@ def update_store_identity(
         set_parts.append(f"{column} = %({key})s")
         params[key] = value
 
+    where, scope_params = scope.sql_filter("id")
+    params.update(scope_params)
+
     sql = f"""
         update stores
            set {', '.join(set_parts)}
-         where id = %(store_id)s
+         where id = %(store_id)s and {where}
         returning {_COLUMNS}
     """
-    return conn.execute(sql, params).fetchone()
+    row = conn.execute(sql, params).fetchone()
+    if row is None:
+        raise OutOfScope(str(store_id))
+    return row
 
 
 def activation_blockers(store: dict[str, Any]) -> list[str]:

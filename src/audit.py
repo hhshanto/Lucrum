@@ -20,7 +20,14 @@ from typing import Any
 
 import psycopg
 
-__all__ = ["AuditEvent", "record", "new_operation_id", "DuplicateOperation"]
+__all__ = [
+    "AuditEvent",
+    "record",
+    "new_operation_id",
+    "DuplicateOperation",
+    "ReplayConflict",
+    "check_replay_target",
+]
 
 
 OPERATION_ID_CONSTRAINT = "audit_events_operation_id_unique"
@@ -49,6 +56,67 @@ class DuplicateOperation(Exception):
     @property
     def existing_id(self) -> uuid.UUID:
         return self.existing_event["id"]
+
+
+class ReplayConflict(Exception):
+    """An ``operation_id`` resolved to a *different* write than the one this
+    call is attempting (F-31, US-003 audit).
+
+    ``DuplicateOperation`` alone is not enough: it says only "this
+    operation_id has been used before", which is true whether the earlier
+    use was a genuine retry of this exact request or an unrelated write that
+    happens to have reused the same ``Idempotency-Key`` -- a PATCH on a
+    different store, a POST to a different endpoint entirely. Treating every
+    ``DuplicateOperation`` as a replay means a key spent on
+    ``POST /stores/{a}/notes`` makes a later ``POST /stores`` return 200 with
+    *that* store, having created nothing -- or a PATCH on store B, reusing a
+    key already spent on store A, reports 200 with A's data while B's change
+    is silently dropped.
+
+    Call ``check_replay_target`` before trusting a ``DuplicateOperation`` as
+    a replay. A caller that catches this should report a conflict (409),
+    never success -- there is no "original outcome" to return, because this
+    operation_id was never used for the request the caller is making now.
+    """
+
+    def __init__(
+        self, operation_id: str, existing_event: dict[str, Any], expected_event_type: str
+    ) -> None:
+        super().__init__(
+            f"operation {operation_id} was already recorded as "
+            f"{existing_event['event_type']!r} on "
+            f"{existing_event['entity_type']}:{existing_event['entity_id']}, "
+            f"not {expected_event_type!r} -- not a replay of this request"
+        )
+        self.operation_id = operation_id
+        self.existing_event = existing_event
+
+
+def check_replay_target(
+    existing_event: dict[str, Any],
+    *,
+    event_type: str,
+    entity_type: str,
+    entity_id: uuid.UUID | None = None,
+) -> None:
+    """Confirm a ``DuplicateOperation`` really is a replay of *this* request.
+
+    Raises ``ReplayConflict`` if the operation_id resolves to a different
+    ``event_type``, a different ``entity_type``, or -- when ``entity_id`` is
+    given -- a different ``entity_id``. ``entity_id`` is optional because a
+    row-creating write (store creation) cannot know its own target's id in
+    advance; ``event_type`` and ``entity_type`` alone are what it has to
+    check (F-31).
+    """
+    mismatch = (
+        existing_event["event_type"] != event_type
+        or existing_event["entity_type"] != entity_type
+        or (entity_id is not None and existing_event["entity_id"] != entity_id)
+    )
+    if mismatch:
+        raise ReplayConflict(
+            existing_event.get("operation_id", "<unknown>"), existing_event, event_type
+        )
 
 
 def new_operation_id() -> str:

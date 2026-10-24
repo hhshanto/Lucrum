@@ -61,6 +61,30 @@ def _bearer_token(header: str) -> str:
     return token
 
 
+def _authenticate_request(
+    conn, request: Request
+) -> access_service.AuthenticatedSession:
+    """The authentication gate shared by every dependency below (F-35, US-003
+    audit): parse the header, extract the bearer token, validate the
+    session. ``request_scope`` and ``request_actor`` used to each carry
+    their own verbatim copy of these three lines -- Invariant #5 (one
+    implementation) does not only apply to money; two copies of an
+    authentication gate diverge exactly as silently, the moment one of them
+    picks up a fix (a rate limiter, F-19's ``FOR UPDATE``) and the other
+    does not.
+
+    A missing or malformed credential is exactly as invalid as a bad one --
+    see ``request_scope``'s docstring below for why that collapsing is
+    deliberate.
+    """
+    header = request.headers.get("Authorization")
+    if not header:
+        raise access_service.SessionInvalid("no credential offered")
+
+    token = _bearer_token(header)
+    return access_service.authenticate(conn, token)
+
+
 def request_scope(request: Request) -> StoreScope:
     """Resolve the caller's store scope from a real, live session lookup.
 
@@ -85,13 +109,8 @@ def request_scope(request: Request) -> StoreScope:
     AC-03 requires that authorization withdrawn after a session was issued
     is re-checked on the very next request.
     """
-    header = request.headers.get("Authorization")
-    if not header:
-        raise access_service.SessionInvalid("no credential offered")
-
-    token = _bearer_token(header)
     with connection() as conn:
-        session = access_service.authenticate(conn, token)
+        session = _authenticate_request(conn, request)
         return access_service.resolve_scope(conn, session.user_id)
 
 
@@ -120,13 +139,8 @@ def request_actor(request: Request) -> Actor:
     (BR-11) in addition to store scope -- today, store creation and store
     identity changes (US-003 AC-03).
     """
-    header = request.headers.get("Authorization")
-    if not header:
-        raise access_service.SessionInvalid("no credential offered")
-
-    token = _bearer_token(header)
     with connection() as conn:
-        session = access_service.authenticate(conn, token)
+        session = _authenticate_request(conn, request)
         scope = access_service.resolve_scope(conn, session.user_id)
         user = access_repository.get_user(conn, session.user_id)
         if user is None:  # pragma: no cover - resolve_scope already refused this
@@ -152,6 +166,21 @@ async def forbidden_handler(request: Request, exc: Forbidden):
     raise HTTPException(
         status_code=403,
         detail={"code": "FORBIDDEN", "message": "Not permitted."},
+    )
+
+
+@app.exception_handler(audit.ReplayConflict)
+async def replay_conflict_handler(request: Request, exc: audit.ReplayConflict):
+    # F-31 (US-003 audit): an Idempotency-Key reused against a different
+    # entity or a different kind of write is a genuine conflict, never a
+    # replay -- 409, never 200/201. Returning either of those would report
+    # someone else's write as this call's own success.
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "OPERATION_ID_CONFLICT",
+            "message": "This Idempotency-Key was already used for a different operation.",
+        },
     )
 
 
@@ -464,8 +493,14 @@ class StoreCreateRequest(BaseModel):
     blocker.
     """
 
-    name: str = Field(min_length=1, max_length=200)
-    walmart_store_key: str = Field(min_length=1, max_length=200)
+    # F-36 (US-003 audit): max_length is deliberately NOT set here. Both
+    # columns are unconstrained `text` (001_baseline.sql) -- a length cap
+    # invented at this layer cannot be cited to any document, and it was
+    # asymmetric with update besides (rejected at create, accepted at
+    # rename). min_length=1 stays: an empty name/key is nonsensical and
+    # update now enforces the same floor (StoreUpdateRequest below).
+    name: str = Field(min_length=1)
+    walmart_store_key: str = Field(min_length=1)
     timezone: str | None = None
     currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     managed_from_year: int | None = None
@@ -502,6 +537,7 @@ def create_store(
     with connection() as conn:
         store, replayed = stores_service.create_store(
             conn,
+            actor.scope,
             actor_id=actor.scope.actor_id,
             role=actor.role,
             fields={
@@ -532,13 +568,68 @@ class StoreUpdateRequest(BaseModel):
     optional -- only the ones actually present in the request body are
     changed (``model_dump(exclude_unset=True)`` below), so a rename that
     supplies only ``name`` cannot disturb ``timezone`` or any other field by
-    merely defaulting it to ``None``."""
+    merely defaulting it to ``None``.
 
-    name: str | None = None
+    F-32 (US-003 audit): validation here now matches create exactly for
+    every field that *can* be set to a value -- ``name`` gets the same
+    ``min_length=1`` floor create already has (an empty-string rename was
+    previously accepted; a NULL rename was previously accepted too, and
+    ``name`` is ``NOT NULL`` -- that one was a 500, not merely a bad value).
+
+    Explicit ``null`` is rejected for every field, not treated as "clear
+    this field" -- decided, not left ambiguous: no document grants any role
+    the power to blank a store's timezone, currency, or managed_from once a
+    value exists, and doing so silently would be exactly the kind of guess
+    ``AGENTS.md`` forbids (a store with months already resolved against its
+    current timezone would have that history reinterpreted the moment the
+    field reads as unset again). If a field should ever become legitimately
+    clearable, that is a business decision for the Owner to make explicitly,
+    naming which fields and why -- not a side effect of an update endpoint
+    accepting whatever shape JSON happens to allow. Omit the field entirely
+    to leave it unchanged; this is unambiguous and already worked before
+    this fix.
+    """
+
+    name: str | None = Field(default=None, min_length=1)
     timezone: str | None = None
     currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     managed_from_year: int | None = None
     managed_from_month: int | None = Field(default=None, ge=1, le=12)
+
+    @model_validator(mode="after")
+    def _no_field_may_be_cleared(self) -> "StoreUpdateRequest":
+        # F-32: a field is "provided" exactly when it is in
+        # model_fields_set -- the same signal exclude_unset reads below.
+        # Checking the *value* alone (`is None`) would be indistinguishable
+        # from "omitted", which is the one case this must NOT reject.
+        nulled = [
+            field
+            for field in self.model_fields_set
+            if getattr(self, field) is None
+        ]
+        if nulled:
+            raise ValueError(
+                f"{', '.join(sorted(nulled))}: explicit null is not accepted -- "
+                "no identity field may be cleared once a value exists "
+                "(US-003 audit F-32). Omit the field entirely to leave it "
+                "unchanged."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _managed_from_paired(self) -> "StoreUpdateRequest":
+        # Mirrors stores_managed_from_paired (001_baseline.sql), checked on
+        # *presence* (model_fields_set) rather than on value -- the value-null
+        # case is already rejected above, so by the time this runs, "present"
+        # means "present with a real value".
+        year_given = "managed_from_year" in self.model_fields_set
+        month_given = "managed_from_month" in self.model_fields_set
+        if year_given != month_given:
+            raise ValueError(
+                "managed_from_year and managed_from_month must both be "
+                "provided together, or neither provided"
+            )
+        return self
 
 
 # Request field name -> column name. Kept next to the request model rather
@@ -563,8 +654,14 @@ def update_store(
     actor: Actor = Depends(request_actor),
 ) -> dict[str, object]:
     """Change a store's identity fields -- rename, retimezone, recurrency,
-    or re-set ``managed_from`` (US-003 AC-04). Owner or Admin, scoped to
-    stores the actor is assigned to (BR-11, AC-03).
+    or re-set ``managed_from`` (US-003 AC-04). Owner or Admin for most
+    fields; ``managed_from_*`` specifically is Owner-only pending B-13 (see
+    ``src/stores/service.py``). Scoped to stores the actor is assigned to
+    (BR-11, AC-03).
+
+    B-9 (open, F-42): this endpoint carries no ``is_active`` filter --
+    whether an inactive store accepts writes at all is not settled, exactly
+    as ``repository.list_stores``'s docstring notes for the read path.
     """
     provided = body.model_dump(exclude_unset=True)
     fields = {_UPDATE_FIELD_TO_COLUMN[k]: v for k, v in provided.items()}
