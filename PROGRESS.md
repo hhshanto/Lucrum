@@ -8,7 +8,7 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
-**Slice 0 walking skeleton: done except the step 5 CI proof below. Slice 1: US-001 done and audited. US-002 split; US-002a audited and blocked on B-7.**
+**Slice 0 walking skeleton: done except the step 5 CI proof below. Slice 1: US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/`.**
 
 **US-002 was split, because it spans two modules.** AC-01 and AC-02 are
 server-side (query layer + HTTP edge); AC-03 ("explicit discard/cancel before
@@ -18,26 +18,44 @@ filtered list and no selected row anywhere in `src/` yet, so AC-03/AC-04 could
 only be built by inventing a shell *and* stub screens to have something to
 discard and clear.
 
-- **US-002a (AC-01, AC-02)** -- server half. Implemented, audited, **not
-  done**: blocked on B-7.
-- **US-002b (AC-03, AC-04)** -- UI shell. **Blocked on an Owner decision**
-  (B-8) and should land with slice 2, when the orders list supplies a real
-  filtered list and a real unsaved-input form to act on.
+- **US-002a (AC-01, AC-02)** -- server half. Implemented, audited, committed
+  as `10b6fda`. **One step from done:** the Owner must paste the B-7
+  amendment into `docs/walmart-user-stories.md` after line 109. Until then
+  the only written statement of the rule is a docstring citing a blocker id,
+  which is not a specification.
+- **US-002b (AC-03, AC-04)** -- UI shell. Unblocked on B-8 (session row), but
+  still has no shell, form or filtered list to act on. Lands with slice 2.
 
-US-002a required **no production code**. The scope spine built during US-001
-(`StoreScope`, `resolve_scope`, `list_stores`/`get_store`, the `OutOfScope`
--> 404 handler) already satisfies AC-01 and AC-02, so the deliverable is nine
-pinning tests in `tests/test_us002_select_store.py`. **105 tests pass**,
-scanner clean (18 files, 0 suppressions), `git diff src/` empty.
+**What US-002a shipped.** AC-02 needed no production code -- the US-001 scope
+spine already satisfied it. AC-01 did: `is_active` was silently acting as a
+visibility filter nobody had agreed to. `list_stores` appended `and is_active`
+while `get_store` had no such filter, so a Manager assigned to a deactivated
+store could not see it in `GET /stores` but could open it in full, 200, via
+`GET /stores/{id}`. The Owner settled it (B-7, below); `include_inactive` was
+removed outright rather than defaulted to `True`, so scope is the only filter
+`list_stores` can compose and no future call site can reintroduce the
+exclusion with one keyword argument.
 
-Because the tests were green on first run, there was no red step, and a test
+**21 lines of production change, 14 tests, 110 passing**, scanner clean (18
+files, 0 suppressions).
+
+The AC-02 tests were green on first run, so there was no red step, and a test
 that has never failed has never been shown to constrain anything. They were
-therefore validated by **mutation instead**: nine deliberate breaks, each
-caught by the expected test -- admin treated as owner; `sql_filter` returning
-`true` for an empty scope; the owner special case removed; 404 changed to 403;
-the store id interpolated into the 404 body; the scope filter dropped from
-`list_stores`; `resolve_scope` ignoring `user_id`; `get_store` filtering in
-Python after the fetch; a header present only when the store exists.
+validated by **mutation instead** -- admin treated as owner; `sql_filter`
+returning `true` for an empty scope; the owner special case removed; 404
+changed to 403; the store id interpolated into the 404 body; the scope filter
+dropped from `list_stores`; `resolve_scope` ignoring `user_id`; `get_store`
+filtering in Python after the fetch; a header present only when the store
+exists; `and is_active` re-introduced. Each was caught by the expected test.
+The AC-01/B-7 tests did have a real red step.
+
+**A process failure worth not repeating.** Mutation testing reverted with
+`git checkout -- <file>` while the implementation was still uncommitted, which
+destroyed the B-7 fix. Audit pass 2 then ran against a tree with no fix in it
+and correctly failed the story, contradicting a status report that claimed it
+was green. The auditor caught it; the summary was the optimistic one. **Commit
+before mutation testing**, and treat any report that disagrees with
+`git diff` as wrong.
 
 The auditor **failed the first pass** (F-21, below) and found three mutation
 survivors, all now closed:
@@ -176,14 +194,14 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | B-4 | No Postgres instance provisioned | Slice 0 | **You** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â pick Neon, Railway or RDS |
 | B-5 | No deployment target chosen | Slice 0 "deployed" criterion | **You** |
 | B-6 | No refunded order in the golden set. The refund and cost-recovery path is covered only by synthetic fixtures | Slice 5 real-data confidence | **You** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â add 1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2 refunded orders to the workbook |
-| B-7 | **Is an inactive but assigned store offered in the selector?** Audit F-21: `list_stores` hides it (`include_inactive=False`), `get_store` has no `is_active` filter at all -- so `GET /stores` omits it while `GET /stores/{id}` returns it in full, 200, with name, timezone and currency. The spec is silent. No test pins either answer, and flipping the default passes all 105 | **US-002a done** | **You** |
-| B-8 | **Where does the current store selection live?** Session row, cookie, URL, or nowhere (re-derived per request). `user_sessions` has no `current_store_id`; neither document defines a switch endpoint. A shared silence, not a contradiction | US-002b (AC-03, AC-04) | **You** |
+| ~~B-7~~ | ~~Inactive but assigned store in the selector~~ | -- | **Decided 2026-10-24.** Offered. See Decisions log. **Spec amendment still pending** -- see B-10 |
+| ~~B-8~~ | ~~Where the current store selection lives~~ | -- | **Decided 2026-10-24.** Server-side session row. See Decisions log |
+| B-9 | **Does an inactive store accept writes?** Currently **yes, by default** -- `get_store` has no `is_active` filter, so `POST /stores/{id}/notes` succeeds against a deactivated store and writes an audit event. Pre-existing, not introduced by `10b6fda`, but B-7 now *puts the store in the selector*, so users will find the door. The Owner settled visibility only and explicitly did not settle this | First store-scoped write story in slice 2 | **You** |
+| B-10 | **B-7 amendment not yet in `docs/`.** The agent is deny-listed from editing `docs/**`. Until the sentence is pasted after `docs/walmart-user-stories.md:109`, the rule exists only in a `repository.py` docstring citing a blocker id, which is not a specification | **Declaring US-002a done** | **You** -- one paste |
 
 B-5 is the remaining critical-path item, and only when you first deploy. Local development is unblocked. B-2 and B-3 run in parallel and should start now.
 
-B-7 is small and worth closing quickly: it is one sentence of decision, it blocks
-declaring US-002a done, and the asymmetry between the two read paths is a live
-inconsistency regardless of which way it is settled.
+B-10 is one paste and closes US-002a.
 
 ## What the golden orders proved
 
@@ -212,6 +230,8 @@ Append here when something is settled that is not a business rule. Business rule
 | 2026-10-23 | profit-v1 amended: estimates stored at 4dp, settled amounts at 2dp. Verified against 20 real orders. |
 | 2026-10-23 | All decision gates D-01…D-10 closed; recorded as seven versioned policies |
 | 2026-10-24 | US-001 lockout values chosen (not specified by access-v1): threshold 5 failed attempts, lockout duration 15 minutes. Both are `access_policy` rows, reviewable by the Owner without a deploy. |
+| 2026-10-24 | **B-7 closed by the Owner.** `is_active` is not a scope or visibility filter. Owner sees all stores; Admin and Manager see exactly their assignments, inactive ones included. Visibility only -- the write question is explicitly *not* settled (now B-9). This is a **business rule**, so it belongs in `docs/walmart-user-stories.md` after line 109, not here; it is recorded here only until the Owner pastes it (B-10). |
+| 2026-10-24 | **B-8 closed by the Owner.** The current store selection lives in a **server-side session row**, chosen as the option the client cannot tamper with. **It is a pointer, never a grant:** scope must still be resolved per request and the stored selection re-checked against it, or revoking an assignment stops taking effect on the next request as `access-v1` requires. Not yet implemented -- lands with US-002b. |
 
 ## Session log
 
@@ -219,7 +239,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
-| 2026-10-24 | **US-002 split; US-002a (AC-01, AC-02) delivered as tests only, audited, blocked on B-7.** AC-03/AC-04 are UI-shell criteria with no shell, no form and no filtered list to act on, and rest on an undecided question (B-8) -- split out as US-002b rather than inventing a shell plus stub screens. US-002a needed **no production code**: the US-001 scope spine already satisfies both criteria, so the deliverable is nine pinning tests. **105 pass**, scan clean, 0 suppressions, `git diff src/` empty. No red step was available, so the tests were validated by **nine mutations** instead, each caught by the expected test. The auditor failed pass 1 on F-21 (the inactive-but-assigned asymmetry -> B-7) and named three mutation survivors: F-22 scope filter could move from SQL into Python undetected; F-23 the file was not hermetic and only passed because earlier files leave assignments behind; F-24 BT-08 ignored headers. All three now closed and each re-verified by re-running its mutation. F-21 escalated, **not** resolved in code -- choosing a default would have been inventing the rule. |
+| 2026-10-24 | **US-002 split; US-002a (AC-01, AC-02) implemented, audited and committed (`10b6fda`).** AC-03/AC-04 are UI-shell criteria with no shell, no form and no filtered list to act on -- split out as US-002b rather than inventing a shell plus stub screens. AC-02 needed no production code; **AC-01 did**: `is_active` was acting as an unagreed visibility filter, and the two read paths disagreed about it (F-21). Escalated rather than defaulted; the Owner closed it as B-7, and `include_inactive` was then **removed** rather than flipped to `True`, so the exclusion cannot be reintroduced by a keyword argument. **21 lines of production change, 14 tests, 110 passing**, scan clean, 0 suppressions. Three audit passes: pass 1 failed on F-21; **pass 2 failed because mutation testing had reverted the uncommitted fix with `git checkout`** and the tree genuinely had no fix in it -- the auditor was right and the status report was wrong; pass 3 failed on F-25, this file contradicting its own commit. F-22/F-23/F-24 closed (SQL-spy pin, decoy users for hermeticity, header comparison). Still open: B-9 writes-to-inactive, B-10 spec amendment, and B-6 narrowed-not-closed (two spy mutations survive -- cursor bypass, textual-not-semantic scope match). |
 | 2026-10-24 | **US-001 delivered and audited.** `src/access/` (passwords, repository, service), migration `002_access.sql`, session-backed `request_scope`, `POST`/`DELETE /auth/session`, `GET /stores/{store_id}`. **96 tests pass**, scan clean, 0 suppressions. Auditor failed it twice (6 blocking, then 1); F-01...F-12 all closed. Two pre-existing `test_api.py` tests were corrected -- they pinned the slice-0 placeholder and realised BT-08 with an *unauthenticated* caller, which the register defines as "request both as a scoped user". Both came out stricter; BT-08 write-path coverage preserved. Rate limiting still unimplemented (access-v1 gives no window/multiplier/cap) -- escalated, not invented. |
 | 2026-10-23 | Golden orders loaded: 20 real cases, profit-v1 verified against them. Found a workbook error (GR-06) and corrected estimate precision to 4dp. |
 | 2026-10-23 | Specification completed and all gates closed. Guardrail layer built and verified. Agent roster created. Slice plan written. Previous build moved to `old_pro/` and untracked. Stack decided. |
