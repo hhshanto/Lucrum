@@ -8,7 +8,119 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
-**Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10).
+**Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10). **US-003 implemented and audited through to a pass** (`cda7b0e`); it is **not done** -- AC-02's third clause is blocked on B-11 and the story carries B-12, B-13, B-14.
+
+---
+
+## US-003 -- create and configure a store
+
+**Five audit passes. Four of them failed.** Final state `cda7b0e`:
+**195 passed, 1 skipped**, scanner clean (19 files, 0 suppressions), story file
+alone against a fresh database **80+ passed, 1 skipped** -- hermetic.
+
+| AC | Status |
+|---|---|
+| AC-01 stable identifier distinct from display name | **covered** |
+| AC-02 missing configuration identified, not guessed | **partially covered** -- currency and timezone covered at DB *and* response; third clause blocked on **B-11** |
+| AC-03 Manager rejected from creation and settings changes | **covered**, both matrix rows, both 403/404 directions, ordering pinned |
+| AC-04 rename preserves identity and links | **covered** |
+
+The one skipped test is AC-02's "required integration configuration" clause.
+It is skipped with a reason citing B-11 so the gap is visible in every run,
+**not invented**.
+
+**Built API-only again.** The slice plan gives slice 1 `UI-01` and `UI-02`
+(`walmart-slice-plan.md:80`) and neither exists. This was deliberate: none of
+US-003's four ACs are UI criteria, and the spec says nothing normative about
+either screen's content, so building one meant inventing a shell -- the US-002b
+trap. But slice 1 is now three stories deep with no way for the Owner to see
+any of it without reading tests. **Decide before US-004** whether the screens
+are a story of their own or slice 1 closes blind.
+
+### What each audit pass caught, because the pattern matters more than the list
+
+- **Pass 1 (8 blocking).** No authentication gate on either write endpoint
+  (F-28 -- this was F-01 recurring); AC-02 proven at the database but never at
+  the response, where a guess actually reaches a user (F-29); the identity
+  UPDATE carried no scope predicate and `scope` was not even a required
+  argument (F-30, the F-22 class); replay bound to neither entity nor event
+  type, so a key spent on a note made `POST /stores` return someone else's
+  store with 200 (F-31).
+- **Pass 2 (3 blocking).** `extra='ignore'` meant `PATCH
+  {"reporting_currency_code": "EUR"}` returned **200 with the old value** --
+  and that is the real column name; only the update mapping calls it
+  `currency_code` (F-44). `add_store_note` was left running the replay pattern
+  the same commit declared broken, while its docstring advertised itself as
+  the pattern to copy (F-46).
+- **Pass 3 (2 blocking).** **F-55 is the one worth remembering.** The pass-2
+  fix for duplicate `walmart_store_key` resolved the uniqueness conflict
+  *before* the `operation_id`, so an identical payload sent twice under one
+  Idempotency-Key -- the exact case idempotency exists to serve -- was refused
+  as a duplicate registration, while a *different* payload under the same key
+  replayed happily. The honest retry punished, the sloppy one rewarded.
+  Also F-56: `timezone` was never validated, so a store configured
+  `"Mars/Olympus"` reported `activation_blockers == []`, i.e. "fully
+  configured" -- AC-02 wrong in the confident direction.
+- **Pass 4 (4 blocking).** All one family: creation-path behaviour that no test
+  constrained. The `store_created` event type -- the token keeping two
+  endpoints' idempotency keys apart -- was free to change (F-62). The F-55
+  pre-check had **orphaned** the concurrency backstop, so F-31's and F-50's
+  guarantees held on one of two paths (F-63). No test ever successfully
+  *changed* a reporting currency (F-64).
+- **Pass 5: pass.**
+
+### The lesson to carry, stated as a rule
+
+**Every fix round in this story created a new unaudited path.** Pass-1 fixes
+produced F-44/F-45; the pass-2 fix produced F-55; the pass-3 fix produced
+F-63/F-65. The sharpest form is F-63: a fix that adds a branch *ahead* of an
+existing one silently orphans it, and the orphaned branch keeps its tests'
+names without keeping their coverage.
+
+> **When a fix adds a branch ahead of an existing one, re-prove the existing
+> branch is still reachable, or merge the two away.**
+
+Two more, both earned here:
+
+> **A comment explaining why a test avoids an input is a defect report.**
+> `tests:1832-1839` described the F-55 bug in full and used it to justify
+> steering the test away from the input that would expose it. Escalate it;
+> do not encode it.
+
+> **When a finding is fixed on one endpoint, fix it on the sibling in the same
+> commit.** F-37 pinned the rename audit event in pass 1; the identical gap on
+> creation survived to pass 4 as F-62. F-44 forbade unknown fields on the store
+> models; `StoreNote` kept accepting them until pass 4 (F-58).
+
+### What the implementer got right, and should keep doing
+
+It self-reported a weak test it caught during its own mutation run -- its first
+F-59 test passed under mutation for the wrong reason -- rather than presenting
+only the corrected version. That is the behaviour that makes mutation evidence
+worth anything.
+
+### Carried open from US-003 (engineering, no decision needed)
+
+**F-67** timezone validity is enforced at the HTTP edge only; there is no
+`CHECK` on `stores.timezone`, and `activation_blockers` still cannot tell
+"unconfigured" from "configured with nonsense". `currency_code` has two layers,
+timezone has one. Any future non-HTTP writer -- importer, fixture, migration --
+re-opens F-56 unnoticed. Carry to whichever story first writes `stores` from
+outside the API.
+**F-69** `_replay_created_store` collapsed the replay *body*, but each call
+site still passes its own `scope`, and the backstop call site is not pinned
+against being handed `StoreScope.owner()`. Latent only while creation stays
+Owner-only; live escalation the moment that widens.
+**F-60** `_store_body` is no longer round-trippable through `PATCH` under
+`extra="forbid"` (`id`, `walmart_store_key`, `activation_blockers` are
+read-only). Correct behaviour; US-002b's store form will meet it immediately.
+**F-51** an anonymous request now consumes a pool connection before being
+rejected -- folds into the pending rate-limiting work.
+**F-54** the story reached outside its named module three times (`audit.py`,
+`scoping.py`, and slice-0's `add_store_note`). All three were forced by audit
+findings and judged correct, but it is not precedent.
+
+---
 
 **US-002 was split, because it spans two modules.** AC-01 and AC-02 are
 server-side (query layer + HTTP edge); AC-03 ("explicit discard/cancel before
@@ -177,9 +289,27 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-Slice 0 is complete. Slice 1 continues.
+**US-004** is next (`docs/walmart-slice-plan.md:73-82`), and it closes slice 1.
 
-**US-003 � Create and configure a store** is next in the delivery order
+Before starting it, two things want settling:
+
+- **Screens.** Slice 1 is now three stories deep and entirely API-only. The
+  slice plan gives it `UI-01` and `UI-02` and neither exists. Either make the
+  screens a story of their own or accept that slice 1 closes with no way for
+  the Owner to check any of it without reading tests.
+- **Four one-line Owner decisions** would close out the slice: B-10 (paste),
+  B-11 (defines "integration configuration"), B-12 (confirm `store_created`),
+  B-13 (who may move `managed_from`).
+
+**Process change agreed 2026-10-27: two audit passes per story.** US-003 took
+five. Passes 3-5 found real defects, so the passes were not wasted -- but from
+here, after pass 2 any remaining *non-blocking* finding is written to this file
+as a numbered carry-forward item instead of triggering another full round. A
+third pass is for a live defect, not a missing pin.
+
+Previously, before US-003:
+
+**US-003 � Create and configure a store** is next in the delivery order
 (`docs/walmart-slice-plan.md:73-82`), then US-004.
 
 Two things to settle alongside it, neither blocking the start:
@@ -198,7 +328,7 @@ Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 | Slice | Stories | Status |
 |---|---|---|
 | 0 Skeleton | -- | **done.** Step 5 guardrail proof demonstrated 2026-10-24 |
-| 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-7. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003, US-004 not started |
+| 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. **US-003 audited to a pass, blocked on B-11**; carries B-12, B-13, B-14. US-004 not started |
 | 2 Orders | US-005ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦007 | not started |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
 | 4 Settlement evidence | US-015ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦017 | not started |
@@ -223,6 +353,10 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | ~~B-8~~ | ~~Where the current store selection lives~~ | -- | **Decided 2026-10-24.** Server-side session row. See Decisions log |
 | B-9 | **Does an inactive store accept writes?** Currently **yes, by default** -- `get_store` has no `is_active` filter, so `POST /stores/{id}/notes` succeeds against a deactivated store and writes an audit event. Pre-existing, not introduced by `10b6fda`, but B-7 now *puts the store in the selector*, so users will find the door. The Owner settled visibility only and explicitly did not settle this | First store-scoped write story in slice 2 | **You** |
 | B-10 | **B-7 amendment not yet in `docs/`.** The agent is deny-listed from editing `docs/**`. Until the sentence is pasted after `docs/walmart-user-stories.md:109`, the rule exists only in a `repository.py` docstring citing a blocker id, which is not a specification | **Declaring US-002a done** | **You** -- one paste |
+| B-11 | **AC-02's "required integration configuration" is undefined.** No document says what it consists of. The only adjacent text is US-030 AC-04's *integration secrets*, a different story in slice 3; the only plausible column is `walmart_store_key`, but nothing says so -- and it is `NOT NULL` at creation, so it is a validation error, not an activation blocker. The clause has a **skipped test** citing B-11 rather than an invented third blocker | **Declaring US-003 done** | **You** -- define it or rule it out of US-003 |
+| B-12 | **No audit event type for store creation.** `api-service-design.md:1186-1209` names `store_settings_updated`, `store_timezone_changed`, `store_assignment_changed` -- but nothing for creation. Slice 0 makes an audit event mandatory on every write, so one *must* be emitted; only the type string is unspecified. `store_created` was chosen by convention, disclosed at the emit site. It is now **load-bearing**: it is the token keeping `POST /stores` and `PATCH` idempotency keys apart (F-31, F-62) | Nothing today; confirm before slice 2 copies the convention | **You** -- confirm the string |
+| B-13 | **Who may move `managed_from`?** The capability matrix (`walmart-user-stories.md:671`) grants Admin "change store settings". But `:171` says `managed_from` is set by **the Owner**, `database-schema.md:193` says "**Owner** may change it, audited", and `:693` denies Admin "re-post an order into or out of a protected period" -- which is the effect of moving `managed_from` across the `pre_onboarding` boundary. **Interim: Owner-only**, the intersection of all readings, since the narrower one cannot grant a power no document grants. Enforced in code and labelled interim | A rule is being applied that no document states | **You** -- rule on it |
+| B-14 | **`managed_from` auto-default is not implemented.** `walmart-user-stories.md:171` and `database-schema.md:193` both say it defaults to the month the store is added; the code stores `NULL` and reports it as an activation blocker. The spec is **circular here**: "the month the store is added" is a calendar month in the store's timezone, which AC-02 forbids guessing and which may itself be `NULL` at creation. The safe direction was taken | Slice 2, when `scope_status_code` is computed against a NULL boundary | **You** -- resolve the circularity |
 
 B-5 is the remaining critical-path item, and only when you first deploy. Local development is unblocked. B-2 and B-3 run in parallel and should start now.
 
@@ -264,6 +398,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-27 | **US-003 implemented and audited to a pass (`cda7b0e`). Not done -- B-11 blocks AC-02's third clause.** Full pipeline, five audit passes, **four failures**: no auth gate on either new write endpoint (F-28, F-01 recurring); AC-02 proven only at the database (F-29); the identity UPDATE with no scope predicate (F-30); replay bound to neither entity nor event type (F-31); `extra='ignore'` returning 200 with the old value for the *real* column name (F-44); `add_store_note` left on the replay pattern its own commit declared broken (F-46); **F-55**, where the duplicate-key fix made the honest retry a 409 while the sloppy one replayed; `timezone` unvalidated so nonsense reported as "fully configured" (F-56); and a final family of creation-path behaviour no test constrained (F-62…F-65). **195 passed, 1 skipped**, scan clean, 0 suppressions, hermetic alone. The lesson: **every fix round created a new unaudited path** -- F-63 is the sharpest, a fix added *ahead* of an existing branch silently orphaned it. Also: a test comment explaining why an input is avoided is a defect report, not a justification. Three new blockers raised rather than guessed (B-11, B-12, B-13) plus B-14. Built API-only again -- slice 1 still has no screens. |
 | 2026-10-24 | **Slice 0 step 5 demonstrated -- slice 0 is complete.** Pushed `guardrail-proof` (`9c98bf6`) carrying `order_status` in `src/`. The **Static invariant scan** job failed at the scan step while **Tests** and **Schema invariants** both stayed green, and clean `main` (`6766b06`) passed the same workflow. The guardrail provably blocks. Two earlier branches at `3b27e44` had also gone red but proved nothing -- they predated the `APP_ENV` fix and were failing for an unrelated reason, which is why step 5 had stayed open. Branch deleted both sides. Every "scanner clean" before today was an unvalidated signal; from now on it is real. |
 | 2026-10-24 | **US-002 split; US-002a (AC-01, AC-02) implemented, audited and committed (`10b6fda`).** AC-03/AC-04 are UI-shell criteria with no shell, no form and no filtered list to act on -- split out as US-002b rather than inventing a shell plus stub screens. AC-02 needed no production code; **AC-01 did**: `is_active` was acting as an unagreed visibility filter, and the two read paths disagreed about it (F-21). Escalated rather than defaulted; the Owner closed it as B-7, and `include_inactive` was then **removed** rather than flipped to `True`, so the exclusion cannot be reintroduced by a keyword argument. **21 lines of production change, 14 tests, 110 passing**, scan clean, 0 suppressions. Three audit passes: pass 1 failed on F-21; **pass 2 failed because mutation testing had reverted the uncommitted fix with `git checkout`** and the tree genuinely had no fix in it -- the auditor was right and the status report was wrong; pass 3 failed on F-25, this file contradicting its own commit. F-22/F-23/F-24 closed (SQL-spy pin, decoy users for hermeticity, header comparison). Still open: B-9 writes-to-inactive, B-10 spec amendment, and B-6 narrowed-not-closed (two spy mutations survive -- cursor bypass, textual-not-semantic scope match). |
 | 2026-10-24 | **US-001 delivered and audited.** `src/access/` (passwords, repository, service), migration `002_access.sql`, session-backed `request_scope`, `POST`/`DELETE /auth/session`, `GET /stores/{store_id}`. **96 tests pass**, scan clean, 0 suppressions. Auditor failed it twice (6 blocking, then 1); F-01...F-12 all closed. Two pre-existing `test_api.py` tests were corrected -- they pinned the slice-0 placeholder and realised BT-08 with an *unauthenticated* caller, which the register defines as "request both as a scoped user". Both came out stricter; BT-08 write-path coverage preserved. Rate limiting still unimplemented (access-v1 gives no window/multiplier/cap) -- escalated, not invented. |
