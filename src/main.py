@@ -561,14 +561,34 @@ class GrantManagerRequest(BaseModel):
 
 @app.get("/stores/{store_id}/managers")
 def list_managers(
-    store_id: uuid.UUID, scope: StoreScope = Depends(request_scope)
+    store_id: uuid.UUID, actor: Actor = Depends(request_actor)
 ) -> dict[str, object]:
     """Every user currently assigned to a store (UI-14). ``api-service-design.md
-    :238`` names this path. Scoped exactly like every other store read: an
-    out-of-scope or non-existent store_id is a 404, never a 403 (US-002 AC-02).
+    :238`` names this path.
+
+    **F-71 (US-004 audit pass 1), interim.** This used to accept any
+    authenticated caller with scope to the store -- including a Manager --
+    which let a Manager enumerate every other user assigned to their own
+    store. No document names who may read this list: "View stores in scope"
+    (``walmart-user-stories.md:667``, Yes/Yes/Yes) answers "which stores",
+    not "who else is on this one"; "Administer users" (``:669``,
+    Owner/No/No) is user administration generally, not this list
+    specifically. Neither actually names this capability.
+
+    Resolved the same way B-13 resolved "who may move ``managed_from``"
+    (``PROGRESS.md``): take the intersection of all readings, since the
+    narrower one cannot grant a power no document grants. The narrowest
+    available gate is the same one that already governs grant/revoke
+    (``require_can_manage_store_assignments``, Owner-only) -- reused here
+    rather than inventing a fourth answer. **This is explicitly NOT a
+    confirmed rule** -- it is the narrowest-available default, applied
+    because no document grants anything broader, exactly as B-13 is
+    written up as needing an Owner ruling rather than being silently
+    decided. Carry forward as a new blocker until the Owner rules on who
+    may actually read a store's team list.
     """
     with connection() as conn:
-        assignments = team_service.list_managers(conn, scope, store_id)
+        assignments = team_service.list_managers(conn, actor.scope, store_id, role=actor.role)
 
     return {
         "data": assignments,

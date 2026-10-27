@@ -963,6 +963,75 @@ class TestIdempotencyAndReplay:
             migrated_database, user_id=manager["id"], store_id=store_id
         ) == 1
 
+    def test_a_grant_key_reused_for_a_revoke_on_the_same_pair_is_a_conflict_not_a_silent_noop(
+        self, client, migrated_database
+    ):
+        """F-72: ``_check_assignment_replay_target`` checks ``action`` in
+        addition to what ``audit.check_replay_target`` already checks
+        (event_type, entity_type, entity_id). Without that extra check, a
+        grant's ``Idempotency-Key`` reused for a revoke on the IDENTICAL
+        (user, store) pair would find the grant's own audit row under the
+        same operation_id, see it matches event_type/entity_type/entity_id,
+        and report 200 'replayed' -- while the revoke it was actually asked
+        to perform never happens. The assignment would silently survive a
+        call that looked, from its response, exactly like a successful
+        revoke.
+        """
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "Idem Action Collision Store"))
+            owner = _create_user(c, role="owner", password="idem-action-owner-pw")
+            manager = _create_user(c, role="manager", password="idem-action-mgr-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        granted = _grant(client, token, store_id, manager["id"], operation_id=op_id)
+        assert granted.status_code == 201, granted.text
+
+        revoked = _revoke(client, token, store_id, manager["id"], operation_id=op_id)
+        assert revoked.status_code == 409, revoked.text
+
+        # The assignment is untouched -- neither silently kept (that part
+        # is obvious) nor silently removed by some other path.
+        assert _count_assignment_rows(
+            migrated_database, user_id=manager["id"], store_id=store_id
+        ) == 1
+
+    def test_a_grant_key_reused_for_a_grant_on_a_different_store_is_a_conflict_not_a_silent_skip(
+        self, client, migrated_database
+    ):
+        """F-72's other clause: ``_check_assignment_replay_target`` also
+        checks ``store_id``, which ``audit.check_replay_target`` has no
+        way to -- it is not part of that function's generic signature.
+        Without this check, the same user granted to store A, then the
+        identical key reused to grant them to store B, would find A's own
+        audit row, see it matches on event_type/entity_type/entity_id (the
+        entity_id is the USER, not the store), and report 200 'replayed'
+        for store B -- while the grant to B never actually happened.
+        """
+        with _committed(migrated_database) as c:
+            store_a = str(_create_store_db(c, "Idem Store Collision A"))
+            store_b = str(_create_store_db(c, "Idem Store Collision B"))
+            owner = _create_user(c, role="owner", password="idem-store-owner-pw")
+            manager = _create_user(c, role="manager", password="idem-store-mgr-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        granted_a = _grant(client, token, store_a, manager["id"], operation_id=op_id)
+        assert granted_a.status_code == 201, granted_a.text
+
+        granted_b = _grant(client, token, store_b, manager["id"], operation_id=op_id)
+        assert granted_b.status_code == 409, granted_b.text
+
+        # Store B never actually received the grant the colliding call
+        # claimed to make.
+        assert _count_assignment_rows(
+            migrated_database, user_id=manager["id"], store_id=store_b
+        ) == 0
+        # Store A is untouched by the colliding attempt.
+        assert _count_assignment_rows(
+            migrated_database, user_id=manager["id"], store_id=store_a
+        ) == 1
+
 
 # ---------------------------------------------------------------------------
 # Not-found semantics
@@ -1081,3 +1150,120 @@ class TestUnauthenticatedCallerIsPromptedNotFound:
         )
         assert unauth_revoke.status_code == 401
         assert unauth_revoke.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+    def test_list_managers_requires_authentication(self, client, migrated_database):
+        """F-70: ``_list_managers`` existed with no caller at all exercising
+        it. The list endpoint gets the identical F-01 treatment as grant
+        and revoke above -- a missing credential is a 401 prompt, never a
+        404 (which would disclose, by its very difference from 401,
+        whether the store happens to exist)."""
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "Unauth List Store"))
+
+        r = client.get(f"/stores/{store_id}/managers")
+        assert r.status_code == 401
+        assert r.json()["detail"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+# ---------------------------------------------------------------------------
+# F-71 / F-70 (US-004 audit pass 1): who may read a store's manager list.
+#
+# No capability-matrix row or AC names this. The two adjacent rows answer
+# different questions ("View stores in scope", :667, Yes/Yes/Yes is "which
+# stores"; "Administer users", :669, Owner/No/No is user administration
+# generally). Resolved the same way B-13 resolved "who may move
+# managed_from" (PROGRESS.md): the intersection of all readings, since the
+# narrower one cannot grant a power no document grants. Owner-only --
+# the same gate as grant/revoke -- is applied here as the
+# narrowest-available default, INTERIM and flagged for an Owner ruling,
+# not silently decided. These tests pin the behaviour actually built, not
+# a guess at what the eventual ruling will be.
+# ---------------------------------------------------------------------------
+
+
+class TestF71ListManagersAuthorityIsOwnerOnlyInterim:
+    def test_manager_assigned_to_the_store_cannot_list_its_managers(
+        self, client, migrated_database
+    ):
+        """The interim gate is role-based, not scope-based: a Manager who
+        genuinely holds the assignment (in scope) is still rejected 403,
+        never 404 -- mirroring TestRoleRejectionOrdering's discipline for
+        grant/revoke."""
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F71 Manager List Store"))
+            manager = _create_user(c, role="manager", password="f71-mgr-list-pw")
+            other = _create_user(c, role="manager", password="f71-mgr-other-pw")
+            _assign_directly(c, manager["id"], store_id)
+            _assign_directly(c, other["id"], store_id)
+        token = _sign_in(client, manager)
+
+        r = _list_managers(client, token, store_id)
+        assert r.status_code == 403
+        assert r.status_code != 404
+
+    def test_manager_cannot_list_managers_of_a_nonexistent_store(
+        self, client, migrated_database
+    ):
+        """A role rejection must not depend on whether the store exists at
+        all -- the same ordering pin as grant/revoke."""
+        with _committed(migrated_database) as c:
+            manager = _create_user(c, role="manager", password="f71-mgr-nx-pw")
+        token = _sign_in(client, manager)
+
+        r = _list_managers(client, token, uuid.uuid4())
+        assert r.status_code == 403
+        assert r.status_code != 404
+
+    def test_admin_assigned_to_the_store_cannot_list_its_managers(
+        self, client, migrated_database
+    ):
+        """Mirrors ``test_admin_cannot_grant_even_though_admin_may_change_
+        store_settings``: an implementation that reused the broader
+        Owner-or-Admin gate would wrongly let an Admin read this list too.
+        """
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F71 Admin List Store"))
+            admin = _create_user(c, role="admin", password="f71-admin-list-pw")
+            _assign_directly(c, admin["id"], store_id)
+        token = _sign_in(client, admin, with_mfa=True)
+
+        r = _list_managers(client, token, store_id)
+        assert r.status_code == 403
+        assert r.status_code != 404
+
+    def test_owner_lists_exactly_the_assigned_managers_not_more_not_fewer(
+        self, client, migrated_database
+    ):
+        """The happy path (F-70's third bullet): an Owner sees exactly the
+        users actually assigned to this store -- a decoy user assigned to
+        a DIFFERENT store must not appear, and a user that exists but is
+        NOT assigned to this store must not appear either, per the file's
+        existing F-23 discipline (a decoy that would survive a scope-filter
+        or store_id-filter bug by accident)."""
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F71 Owner List Store"))
+            owner = _create_user(c, role="owner", password="f71-owner-list-pw")
+            manager_a = _create_user(c, role="manager", password="f71-owner-list-a-pw")
+            manager_b = _create_user(c, role="manager", password="f71-owner-list-b-pw")
+            _assign_directly(c, manager_a["id"], store_id)
+            _assign_directly(c, manager_b["id"], store_id)
+
+            # Not assigned to this store at all -- must not appear.
+            unassigned = _create_user(c, role="manager", password="f71-owner-list-unassigned-pw")
+
+            # Assigned, but to a DIFFERENT store -- must not appear either.
+            decoy_store = str(_create_store_db(c, "F71 Owner List Decoy Store"))
+            decoy = _create_user(c, role="manager", password="f71-owner-list-decoy-pw")
+            _assign_directly(c, decoy["id"], decoy_store)
+
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _list_managers(client, token, store_id)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        listed_user_ids = {row["user_id"] for row in body["data"]}
+
+        assert listed_user_ids == {str(manager_a["id"]), str(manager_b["id"])}
+        assert str(unassigned["id"]) not in listed_user_ids
+        assert str(decoy["id"]) not in listed_user_ids
+        assert body["meta"]["count"] == 2

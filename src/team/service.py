@@ -135,13 +135,31 @@ def _check_assignment_replay_target(
 
 
 def list_managers(
-    conn: psycopg.Connection, scope: StoreScope, store_id: uuid.UUID
+    conn: psycopg.Connection, scope: StoreScope, store_id: uuid.UUID, *, role: str
 ) -> list[dict[str, Any]]:
-    """Every user currently assigned to a store the caller may see.
+    """Every user currently assigned to a store.
 
     ``OutOfScope`` (404) for a store outside the caller's scope or one that
-    does not exist, same as every other read on a store.
+    does not exist, same as every other read on a store -- checked only
+    after the role gate below, so a Manager/Admin rejection never depends
+    on whether the store happens to exist (the same ordering discipline
+    ``grant_manager``/``revoke_manager`` already apply).
+
+    **F-71 (US-004 audit pass 1), interim.** This used to be reachable by
+    any caller with scope to the store at all -- role played no part -- so
+    a Manager assigned to a store could enumerate every other user
+    assigned to it too. No capability-matrix row or AC names who may read
+    this list; the two adjacent rows ("View stores in scope",
+    ``walmart-user-stories.md:667``, Yes/Yes/Yes; "Administer users",
+    ``:669``, Owner/No/No) answer different questions. Gated here on
+    ``require_can_manage_store_assignments`` (Owner-only) as the
+    narrowest-available reading, the same discipline B-13 applies to
+    "who may move ``managed_from``" (``PROGRESS.md``): the narrower
+    answer cannot be wrong in the sense of granting a power no document
+    grants. **This is not a confirmed rule** -- flagged as a new blocker
+    needing an Owner ruling, not silently decided.
     """
+    require_can_manage_store_assignments(role)
     stores_repository.get_store(conn, scope, store_id)
     rows = team_repository.list_assignments(conn, store_id=store_id)
     return [_assignment_payload(user_id=r["user_id"], store_id=r["store_id"]) for r in rows]
