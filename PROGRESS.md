@@ -10,9 +10,102 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 **Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10). US-003 implemented and audited through to a pass (`cda7b0e`); not fully closable -- AC-02's third clause is blocked on B-11 and the story carries B-12, B-13, B-14. **US-004 implemented and audited to a clean pass** (`a9ea6aa`, two audit rounds, both verified independently rather than on reported counts) -- all four ACs covered by a passing test; carries B-15 (new) plus eight non-blocking engineering carry-forwards (F-73...F-81). **All four of slice 1's stories now exist in code and are audited.** The slice itself is not "done" by this project's own definition (every AC passing + guardrail green + **deployed**) -- B-5 (no deployment target chosen) is still open, and B-10/11/12/13/14/15 remain Owner items.
 
-**A second, unrelated item surfaced and was deliberately not acted on this session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` exist from an apparently-interrupted prior session. `theme.txt` presents itself as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) but **contradicts** `docs/walmart-store-manager-design.md`'s own UX baseline ("a serious internal finance-and-operations tool... data-dense... compact typography... desktop-first density") and reads as foreign content (its own preamble addresses "React, Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses). Recorded as **B-16**. Neither file was committed, deleted, or built against -- left exactly as found so nothing is silently decided either way.
+**A second, unrelated item surfaced mid-session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` were found sitting in the tree from an apparently-interrupted prior session. `theme.txt` read as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) that **contradicted** `docs/walmart-store-manager-design.md`'s own UX baseline. Escalated as **B-16** rather than built on, deleted, or silently rewritten. **The Owner closed it the same session**: `theme.txt` is intentional for this project but advisory only -- "the idea and inspiration," not a literal palette/font/technique requirement, and does not override the data-dense/sober baseline. See the Decisions log.
 
-**UI-01 (sign-in screen and authenticated shell) implemented and made to pass against the test-author's revised, theme-agnostic spec (`tests/test_ui001_sign_in_screen.py`, committed `a1b61c7`).** `src/templates/`, `src/static/css/app.css`, and `src/web/routes.py` now exist; **34 passed, 1 skipped** (F-13, unchanged) against that file alone, **262 passed, 3 skipped** for the full suite, guardrail scan clean (24 files, 0 suppressions). `python-multipart` added to `requirements.txt` (confirmed necessary by reading the installed Starlette's own `form()` implementation: it asserts `parse_options_header is not None` before looking at content type at all, so it is required for the plain url-encoded sign-in form too, not only multipart). No new rule was implemented -- every route here calls `access_service.sign_in` / `authenticate` / `resolve_scope` / `sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through a cookie instead of a bearer header. Full story detail below the US-004 section.
+**UI-01 (sign-in screen and authenticated shell) built on the strength of that ruling.** The test file was revised first (test-author, before any implementation) to drop every literal-`theme.txt`-value assertion and replace it with the underlying theme-agnostic engineering/accessibility property instead (a real WCAG contrast floor, token-declared-once discipline, independently-settable heading/body typography) -- committed `a1b61c7`. The screen was then implemented against that revision (`src/templates/`, `src/static/css/app.css`, `src/web/routes.py`, committed `fd2b0fe`) and audited to a **clean pass on the first round** -- no blocking findings, no fix round needed. **34 passed, 1 skipped** (F-13, unchanged) against that file alone, **262 passed, 3 skipped** for the full suite, guardrail scan clean (24 files, 0 suppressions). No new business rule was implemented -- every route calls `access_service.sign_in` / `authenticate` / `resolve_scope` / `sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through a cookie instead of a bearer header. Full detail below, in its own "UI-01" section ahead of US-004.
+
+---
+
+## UI-01 -- sign-in screen and authenticated shell
+
+Built against `tests/test_ui001_sign_in_screen.py` as committed at `a1b61c7`
+-- the test-author's own revision, written *after* the Owner closed B-16
+("`theme.txt` is inspiration, not a literal spec"), so every Group-5
+assertion in that file is already theme-agnostic (a token declared once, two
+independently-settable typography tokens, a real WCAG contrast floor) rather
+than pinned to any exact hex or font name. Nothing in this file was
+weakened, rewritten, or skipped to make it pass; the one skip already in it
+(`test_f13_account_locked_disclosure_is_an_open_question`) is the
+pre-existing, deliberate F-13 skip, untouched.
+
+**No new business rule was implemented.** Every route in `src/web/routes.py`
+calls a function `src/access/service.py` already implements and
+`test_us001_sign_in.py` already proves: `sign_in`, `authenticate`,
+`resolve_scope`, `sign_out`, plus `stores_repository.list_stores` for the
+shell's store list. The only new work is transport -- an opaque,
+server-validated session token carried in an `HttpOnly`, `SameSite=Lax`
+cookie instead of an `Authorization: Bearer` header -- and presentation
+(`src/templates/*.html`, `src/static/css/app.css`). `python-multipart` was
+added to `requirements.txt`; its necessity was confirmed by reading the
+installed Starlette's own `Request.form()` (`site-packages/starlette/
+requests.py`), which asserts `parse_options_header is not None` before it
+even looks at the content type, so the dependency is required for the
+plain `application/x-www-form-urlencoded` sign-in post too, not only a
+multipart/file upload, exactly as the test file's own docstring says.
+
+**Routes added**, all in `src/web/routes.py`, registered on `app` via
+`app.include_router` in `src/main.py` (plus one `app.mount("/static", ...)`
+line in `main.py` itself, since an `APIRouter` cannot mount a
+sub-application):
+
+| Route | Behaviour |
+|---|---|
+| `GET /` | 200 html, anonymous landing page |
+| `GET /sign-in` | 200 html form if not authenticated; 303 to `/app` if a valid session cookie is already present (never re-renders the password field to an authenticated visitor) |
+| `POST /sign-in` | form-encoded `email`/`password`; success sets the cookie and 303s to `/app`; failure re-renders the form 200 with the typed email preserved, the password never echoed, and one generic, non-disclosing error message shared by every `AuthenticationFailed` subtype |
+| `GET /app` | anonymous or invalid-cookie -> 303 to `/sign-in`, never a 200 with any protected content, even transiently; authenticated -> 200, shows the caller's email, a sign-out `<form>`, and exactly the stores `repository.list_stores` returns for their freshly-resolved scope -- no currency, no dollar amount, no `Decimal` anywhere |
+| `POST /sign-out` | revokes the session server-side via `access_service.sign_out` (not merely a dropped cookie), deletes the cookie, 303s to `/sign-in` |
+
+**Audit: one pass, clean, no fix round.** Verified independently (re-ran
+the suite, re-read `src/web/routes.py` in full, traced the scope-freshness
+call site, confirmed no second implementation of authentication/lockout/MFA
+exists anywhere in the new module). Six non-blocking findings, none
+touching a protected invariant:
+
+- **F-82** -- `GET /app`'s and `_optional_session`'s `except SessionInvalid`
+  branches are correct but untested (every "after sign-out" test in the
+  file drops the cookie from the client entirely rather than leaving a
+  merely-stale one, so the "cookie present but no longer valid" branch is
+  never reached). **Fail-closed, not blocking**: deleting the branch still
+  surfaces the shared `SessionInvalid` exception handler (`main.py`), which
+  returns a 401 with the same non-disclosing body -- no protected content
+  leaks either way, the cost is a worse error page for the single most
+  common real-world case (an idle session), not a security hole. First
+  thing to close when UI-02 opens.
+- **F-83** -- scope *freshness* at `GET /app` (resolved fresh per request,
+  never cached) is correct by reading the code but unpinned by any test;
+  the existing freshness test (`test_us001_sign_in.py`) only covers the
+  JSON/bearer call site. Latent until B-8's store-selection session row
+  lands in US-002b.
+- **F-84** -- the MFA-on-HTML-form disclosure (Owner/Admin signing in via
+  the browser form gets the generic failure message, never a code prompt)
+  is correct by construction (verified: `MfaRequired` is raised before the
+  session is created, so no bypass is possible) but untested.
+- **F-85** -- the comment disclosing the absent `secure` cookie flag
+  (correct for local HTTP dev, needed once deployed behind TLS) cites
+  "PROGRESS.md" generally rather than a specific blocker id -- the F-81
+  shape recurring. Fold into **B-5** (deployment) explicitly rather than
+  leaving a dangling reference.
+- **F-86** -- `POST /sign-out` with no cookie at all (a harmless no-op) is
+  untested.
+- **F-87** -- a comment justifying an explicit `conn.commit()` after a
+  caught `AuthenticationFailed` misstates *why* it's needed (the exception
+  is caught inside the `with` block, so the context manager would commit
+  on the clean `return` regardless) -- the commit itself is still correct
+  and harmless, only the stated reasoning is wrong. Worth fixing before the
+  comment is copied to a route where the distinction actually matters.
+
+None of the six touch a protected invariant (no shared implementation was
+duplicated, no state dimension collapsed, no policy value hardcoded, no
+suppression added) -- the auditor's own recommendation was to accept and
+carry these forward rather than force a second round.
+
+**Disclosed gaps -- found by self-review before the audit even ran, per the
+brief's own instruction to report rather than leave for an auditor:** the
+MFA gap (F-84, above, disclosed in the route module's own docstring) and
+the stale-cookie branch (F-82, confirmed empirically with a throwaway probe
+script against the real cookie jar behaviour before being reported, not
+assumed).
 
 ---
 
@@ -579,7 +672,7 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | B-13 | **Who may move `managed_from`?** The capability matrix (`walmart-user-stories.md:671`) grants Admin "change store settings". But `:171` says `managed_from` is set by **the Owner**, `database-schema.md:193` says "**Owner** may change it, audited", and `:693` denies Admin "re-post an order into or out of a protected period" -- which is the effect of moving `managed_from` across the `pre_onboarding` boundary. **Interim: Owner-only**, the intersection of all readings, since the narrower one cannot grant a power no document grants. Enforced in code and labelled interim | A rule is being applied that no document states | **You** -- rule on it |
 | B-14 | **`managed_from` auto-default is not implemented.** `walmart-user-stories.md:171` and `database-schema.md:193` both say it defaults to the month the store is added; the code stores `NULL` and reports it as an activation blocker. The spec is **circular here**: "the month the store is added" is a calendar month in the store's timezone, which AC-02 forbids guessing and which may itself be `NULL` at creation. The safe direction was taken | Slice 2, when `scope_status_code` is computed against a NULL boundary | **You** -- resolve the circularity |
 | B-15 | **Who may read a store's team list?** No capability-matrix row or AC names who may call `GET /stores/{store_id}/managers`. The two nearest rows answer different questions ("View stores in scope" is *which stores*, not *who else is on this one*; "Administer users" is user administration generally). **Interim: Owner-only** -- the same narrowest-available-reading precedent as B-13 -- enforced in code and labelled interim in both `src/main.py:569-588` and `src/team/service.py:148-160` | Nothing today; confirm before any other story reads this list | **You** -- rule on it |
-| B-16 | **Is `theme.txt` (untracked, repo root) this project's design-system contract?** It pins an exact "Botanical / Organic Serif" palette, Google Fonts, a mandatory SVG grain overlay, pill buttons and arch imagery, and was used to write 34 uncommitted tests (`tests/test_ui001_sign_in_screen.py`) against both the sign-in screen and the authenticated shell. It directly contradicts `docs/walmart-store-manager-design.md`'s UX baseline ("data-dense... compact typography... desktop-first density"), and its own preamble addresses "React, Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses. Neither file has been committed, deleted, or built against | Any future UI-01/shell work | **You** -- confirm intent or have it removed |
+| ~~B-16~~ | ~~Is `theme.txt` this project's design-system contract?~~ | -- | **Decided 2026-10-27.** Inspiration only, not literal. See Decisions log. UI-01 built on the strength of this ruling |
 
 B-5 is the remaining critical-path item, and only when you first deploy. Local development is unblocked. B-2 and B-3 run in parallel and should start now.
 
