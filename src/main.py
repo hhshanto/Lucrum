@@ -27,6 +27,7 @@ from src.config import ConfigurationMissing, load_settings
 from src.db.connection import close_pool, connection, init_pool
 from src.scoping import Forbidden, OutOfScope, StoreScope
 from src.stores import repository, service as stores_service
+from src.team import repository as team_repository, service as team_service
 
 
 @asynccontextmanager
@@ -197,6 +198,32 @@ async def duplicate_store_key_handler(
             "code": "DUPLICATE_WALMART_STORE_KEY",
             "field": "walmart_store_key",
             "message": "A store with this walmart_store_key is already registered.",
+        },
+    )
+
+
+@app.exception_handler(team_service.UserNotFound)
+async def user_not_found_handler(request: Request, exc: team_service.UserNotFound):
+    # US-004: a dangling user_id is a plain bad reference, not a store-scope
+    # question -- named and disclosed, never a raw foreign-key IntegrityError.
+    raise HTTPException(
+        status_code=404,
+        detail={
+            "code": "USER_NOT_FOUND",
+            "message": "No such user.",
+        },
+    )
+
+
+@app.exception_handler(team_service.AlreadyAssigned)
+async def already_assigned_handler(request: Request, exc: team_service.AlreadyAssigned):
+    # US-004: a fresh Idempotency-Key aimed at a pair that is already
+    # assigned is a genuine conflict, never a silent success.
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "ALREADY_ASSIGNED",
+            "message": "This user is already assigned to this store.",
         },
     )
 
@@ -511,6 +538,115 @@ def get_store_detail(
     return {
         "data": _store_body(store),
         "meta": {},
+        "errors": [],
+    }
+
+
+class GrantManagerRequest(BaseModel):
+    """US-004. Neither ``walmart-user-stories.md`` nor
+    ``api-service-design.md`` specifies a request body shape for this
+    endpoint; ``{"user_id": "<uuid>"}`` is this story's own reasoned choice,
+    the same discipline ``StoreCreateRequest`` already discloses for its own
+    unspecified shape.
+
+    ``extra="forbid"`` for the same F-44 reason every other write model in
+    this file carries it: a silently-ignored field is a confident success
+    report for a request that did not do what it said.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+
+
+@app.get("/stores/{store_id}/managers")
+def list_managers(
+    store_id: uuid.UUID, scope: StoreScope = Depends(request_scope)
+) -> dict[str, object]:
+    """Every user currently assigned to a store (UI-14). ``api-service-design.md
+    :238`` names this path. Scoped exactly like every other store read: an
+    out-of-scope or non-existent store_id is a 404, never a 403 (US-002 AC-02).
+    """
+    with connection() as conn:
+        assignments = team_service.list_managers(conn, scope, store_id)
+
+    return {
+        "data": assignments,
+        "meta": {"count": len(assignments)},
+        "errors": [],
+    }
+
+
+@app.post("/stores/{store_id}/managers", status_code=201)
+def grant_manager(
+    store_id: uuid.UUID,
+    body: GrantManagerRequest,
+    response: Response,
+    operation_id: str = Header(alias="Idempotency-Key"),
+    actor: Actor = Depends(request_actor),
+) -> dict[str, object]:
+    """Assign a Manager to a store (US-004 AC-01/AC-02). Owner only -- BR-11's
+    capability matrix draws "Assign managers to stores" as its own row,
+    Owner yes / Admin no / Manager no, the same shape as "Create store" and
+    deliberately NOT the same shape as "Change store settings"
+    (``src/team/service.py`` module docstring explains the trap this avoids).
+
+    Follows the idempotency pattern ``stores_service.create_store``
+    establishes: ``operation_id`` is required from the caller, the operation
+    ledger is checked before any uniqueness precondition (F-55), and a
+    replay reports the original outcome with 200 rather than acting twice.
+    """
+    with connection() as conn:
+        result, replayed = team_service.grant_manager(
+            conn,
+            actor.scope,
+            actor_id=actor.scope.actor_id,
+            role=actor.role,
+            store_id=store_id,
+            user_id=body.user_id,
+            operation_id=operation_id,
+        )
+
+    if replayed:
+        # Nothing was created on this call -- same convention as every other
+        # replay branch in this file.
+        response.status_code = 200
+
+    return {
+        "data": result,
+        "meta": {"operation_id": operation_id, "replayed": replayed},
+        "errors": [],
+    }
+
+
+@app.delete("/stores/{store_id}/managers/{user_id}", status_code=200)
+def revoke_manager(
+    store_id: uuid.UUID,
+    user_id: uuid.UUID,
+    response: Response,
+    operation_id: str = Header(alias="Idempotency-Key"),
+    actor: Actor = Depends(request_actor),
+) -> dict[str, object]:
+    """Remove a Manager's assignment to a store (US-004 AC-03). Owner only,
+    same gate as the grant above. 200, never a bare 204 -- this is a real,
+    audited business write and carries the same replay contract every other
+    write in this file has, which a bare 204 (``DELETE /auth/session``'s
+    convention) has no room to express.
+    """
+    with connection() as conn:
+        result, replayed = team_service.revoke_manager(
+            conn,
+            actor.scope,
+            actor_id=actor.scope.actor_id,
+            role=actor.role,
+            store_id=store_id,
+            user_id=user_id,
+            operation_id=operation_id,
+        )
+
+    return {
+        "data": result,
+        "meta": {"operation_id": operation_id, "replayed": replayed},
         "errors": [],
     }
 
