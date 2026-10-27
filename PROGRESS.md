@@ -8,7 +8,127 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
-**Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10). **US-003 implemented and audited through to a pass** (`cda7b0e`); it is **not done** -- AC-02's third clause is blocked on B-11 and the story carries B-12, B-13, B-14.
+**Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10). US-003 implemented and audited through to a pass (`cda7b0e`); not fully closable -- AC-02's third clause is blocked on B-11 and the story carries B-12, B-13, B-14. **US-004 implemented and audited to a clean pass** (`a9ea6aa`, two audit rounds, both verified independently rather than on reported counts) -- all four ACs covered by a passing test; carries B-15 (new) plus eight non-blocking engineering carry-forwards (F-73...F-81). **All four of slice 1's stories now exist in code and are audited.** The slice itself is not "done" by this project's own definition (every AC passing + guardrail green + **deployed**) -- B-5 (no deployment target chosen) is still open, and B-10/11/12/13/14/15 remain Owner items.
+
+**A second, unrelated item surfaced and was deliberately not acted on this session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` exist from an apparently-interrupted prior session. `theme.txt` presents itself as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) but **contradicts** `docs/walmart-store-manager-design.md`'s own UX baseline ("a serious internal finance-and-operations tool... data-dense... compact typography... desktop-first density") and reads as foreign content (its own preamble addresses "React, Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses). Recorded as **B-16**. Neither file was committed, deleted, or built against -- left exactly as found so nothing is silently decided either way.
+
+---
+
+## US-004 -- manage store assignments
+
+Full pipeline: `spec-oracle` -> `test-author` -> `story-implementer` ->
+`invariant-auditor`, **two audit passes**, both verified independently
+(commit hashes, diffs, and test runs re-executed myself, not taken from
+either agent's own report). Final state `a9ea6aa`.
+
+| AC | Status |
+|---|---|
+| AC-01 two Managers, one store, independent access | **covered** |
+| AC-02 one Manager, two stores, no duplicate identity | **covered** |
+| AC-03 revoked access denied on next request | **covered** (F-72 closed a real route to silently breaking this) |
+| AC-04 audited; no retroactive effect | **covered** (the "historical orders" clause honestly deferred -- no `order_assignments` table exists yet; the currently-reachable form, store/user rows untouched, is tested and independently confirmed by reading the code) |
+
+**Scope was clean going in, thanks to spec-oracle.** Before any test was
+written, spec-oracle established: this story is Manager-assignment only
+(every AC names Managers specifically; no document names who may assign an
+*Admin* to a store -- left as a disclosed skip, not guessed); no
+user-creation endpoint exists or is needed (AC-02 presumes the identity
+already exists); the schema as already built (`user_store_assignments`, a
+bare composite-PK table, no surrogate key, no timestamps) is sufficient for
+every AC -- the richer `store_manager_assignments` table in
+`database-schema.md` was never built and this story does not need it, so
+**no migration was written**; and no AC requires a rendered screen, so this
+was built API-only, same as US-001/002a/003.
+
+**Pass 1 (3 blocking).** `GET /stores/{store_id}/managers` shipped with
+*zero* test coverage (F-70). Its read authority had been set to
+"any caller with scope to the store" -- letting a Manager enumerate every
+other user assigned to their own store -- with no capability-matrix row
+answering the question and no blocker raised for inventing the permissive
+answer (F-71). And the sharpest one: the replay-target guard's extra
+`store_id`/`action` checks (beyond what `audit.check_replay_target` itself
+checks) were **real and correct but entirely unproven** -- delete either and
+the suite stays green while a grant's `Idempotency-Key` reused for a revoke
+silently "replays" as a no-op, leaving the Manager's access intact. That is
+AC-03 breaking in exactly two HTTP calls, undetected (F-72).
+
+**The fix round, not a new story.** F-70/F-72 closed with tests (seven new
+tests; `_check_assignment_replay_target` itself was not touched -- it was
+already correct, only unproven, and the implementer resisted the pressure
+to "make the fix look real" by editing code that didn't need it). F-71 was
+resolved the way this project already resolved an identical shape of gap --
+**B-13**'s precedent: take the intersection of all readings, since the
+narrower one cannot grant a power no document grants. `GET .../managers`
+now gates on the same Owner-only check as grant/revoke, labelled **interim**
+in both docstrings, explicitly *"NOT a confirmed rule."*
+
+**Pass 2: pass, with one new non-blocking finding (F-81).** The auditor
+could not mutate the committed guard clauses itself (read-only by design)
+and used a source-level discrimination proof instead -- for each new F-72
+test, it traced which single clause is the sole source of the 409 with the
+other clause provably inert, which it judged stronger than a mutation run
+because it shows *why*, not just *that*. F-81: the F-71 fix's own docstrings
+said "flagged as a new blocker" without a blocker actually existing in
+`PROGRESS.md` to point to -- closed by **this entry**, recorded as **B-15**.
+
+### Carried forward from US-004 (non-blocking; engineering or Owner-decision debt, not a defect)
+
+**B-15** (new, from F-81) -- **who may read a store's team list?** No
+capability-matrix row or AC names this. Resolved *for now* the same way
+B-13 was: narrowest-available reading (Owner-only), enforced, labelled
+interim in `src/main.py:569-588` and `src/team/service.py:148-160`. Needs
+an Owner ruling; until then the gate stays Owner-only.
+
+**F-73** the grant/revoke discriminator (`action: "granted"/"revoked"`) is
+pinned only by a `json.dumps(dict(row))` substring match over the whole
+audit row -- would pass even if the string appeared in an unrelated field.
+The *implementation* is correct (`after_state` is a real, dumpable jsonb
+column); only the test's precision is weak. Tighten to
+`row["after_state"]["action"] == "granted"` before this pattern is copied
+elsewhere.
+**F-74** revoke's role-ordering is only half-pinned: grant has both
+directions (in-scope store *and* nonexistent store both 403 for a
+Manager/Admin); revoke only has the in-scope direction tested.
+**F-75** the `UniqueViolation` concurrency backstop (two racing fresh keys)
+is structurally present but unexercised by any test -- same acknowledged
+gap as US-003's equivalent backstop. The constraint name
+(`user_store_assignments_pkey`) was verified against the migration's DDL,
+not the live catalog (`psql` was unavailable to the auditor in its
+sandbox) -- worth a one-time confirmation against the running database.
+**F-76** `grant_manager` validates the *actor's* role but never the
+*target's* -- an Owner can today assign an Admin or even another Owner as
+a "manager" via this endpoint. No path reaches it except this one call
+site, so nothing is silently exposed, but the disclosed skip
+(`TestGapAdminAssignmentAuthorityIsUndefined`) is no longer an honest
+"undecided" until this is named explicitly as a known, narrow gap.
+**F-77** the two "missing Idempotency-Key" tests assert `422` only, not the
+error's `loc` -- would pass for a coincidental 422 from some unrelated
+cause.
+**F-78** a raw `ForeignKeyViolation` -> 500 remains theoretically possible
+if the target user or store is deleted between the pre-check and the
+`INSERT` (narrow: users are deactivated, not deleted, today).
+**F-79** revoking a never-assigned pair returns `200 {"replayed": false}`,
+indistinguishable from a real revoke to the caller, writes no audit row,
+and consumes no `operation_id`. Disclosed, untested, unspecified by any AC.
+**F-80** (nit) a docstring typo: "Assign managers to stores to stores."
+
+### The lesson this story adds to the register
+
+US-003 found: *"When a fix adds a branch ahead of an existing one, re-prove
+the existing branch is still reachable, or merge the two away."* US-004
+adds the sibling case, from F-72: **a branch can be correct from the
+moment it is written and still be worth nothing until a test is shown to
+depend on it.** The guard clauses that make `_check_assignment_replay_target`
+more than `audit.check_replay_target` already were right in the very first
+commit (`da5b2fa`) -- pass 1 failed anyway, because "correct" and "proven"
+are different claims, and this project's own register exists to stop the
+first one being mistaken for the second.
+
+Also worth keeping: this is the **first story that did not reach outside
+its own named module** (US-003 reached into `audit.py`, `scoping.py`, and
+slice-0's `add_store_note` three times). `src/team/*` only ever *calls*
+`stores_repository.get_store` and `audit.*`; it edits neither. Not a rule,
+but a sign the module boundaries drawn in slice 0 are holding.
 
 ---
 
@@ -289,37 +409,63 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-**US-004** is next (`docs/walmart-slice-plan.md:73-82`), and it closes slice 1.
+**All four of slice 1's stories (US-001-004) now exist in code and have each
+been through the full pipeline and at least one clean audit pass.** The slice
+is not *done* by this project's own definition ("every AC covered by a passing
+test, guardrail green, **and deployed**") -- deployment (B-5) is still an open
+Owner decision, nobody has provisioned a target, and six Owner one-liners
+remain open (B-10, B-11, B-12, B-13, B-14, B-15). None of them block the *code*
+of slice 2 from starting, but slice 1 cannot be declared closed until they're
+answered.
 
-Before starting it, two things want settling:
+**Two things to put in front of the Owner now, neither invented, neither
+acted on unilaterally this session:**
 
-- **Screens.** Slice 1 is now three stories deep and entirely API-only. The
-  slice plan gives it `UI-01` and `UI-02` and neither exists. Either make the
-  screens a story of their own or accept that slice 1 closes with no way for
-  the Owner to check any of it without reading tests.
-- **Four one-line Owner decisions** would close out the slice: B-10 (paste),
-  B-11 (defines "integration configuration"), B-12 (confirm `store_created`),
-  B-13 (who may move `managed_from`).
+- **The six one-line decisions above**, listed again in "Open blockers" below
+  with exact wording. B-15 is new this session (who may read a store's team
+  list -- interim answer: Owner-only, same posture as B-13).
+- **B-16, new this session, and more consequential than the others**: an
+  uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an
+  untracked `theme.txt` were found sitting in the tree from an apparently
+  interrupted prior session. `theme.txt` presents itself as this project's
+  binding design-system contract and was used to write 34 tests pinning an
+  exact "Botanical / Organic Serif" palette, Google Fonts, a mandatory SVG
+  grain overlay, pill buttons and arch imagery -- across **both** the sign-in
+  screen and the authenticated shell. This directly contradicts
+  `docs/walmart-store-manager-design.md`'s own UX baseline ("a serious
+  internal finance-and-operations tool... data-dense... compact typography...
+  desktop-first density"), and `theme.txt`'s own preamble addresses "React,
+  Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses, which
+  is strong evidence the file landed in this repo by accident rather than as
+  an authored decision for Lucrum. **Neither file was committed, deleted, or
+  built against this session** -- left exactly as found, per the standing rule
+  that a contradiction between documents gets reported, not reconciled by
+  whoever finds it. Needs an explicit Owner ruling: is `theme.txt` intended
+  for this project (in which case the UX-baseline document needs to change,
+  not the other way around), or is it foreign content to be deleted and the
+  orphaned test file rewritten against the actual documented baseline (which
+  currently has no concrete tokens -- just principles -- so a real design pass
+  would still be needed either way)?
 
-**Process change agreed 2026-10-27: two audit passes per story.** US-003 took
-five. Passes 3-5 found real defects, so the passes were not wasted -- but from
-here, after pass 2 any remaining *non-blocking* finding is written to this file
-as a numbered carry-forward item instead of triggering another full round. A
-third pass is for a live defect, not a missing pin.
+**Once those are answered:** slice 2 (Orders, US-005-007) is next in
+delivery order, but it depends on `walmart-probe` output (C-02, the supported
+report catalogue) and `WALMART_CLIENT_ID` is not present in `.env` yet (only
+`WALMART_SECRET_KEY` is set) -- so that parallel track cannot start for real
+against the live API until credentials are supplied. Development against
+recorded fixtures is explicitly sanctioned by the slice plan in the meantime
+("Import of an unmapped report type is refused with a clear error. The
+feature is built and testable against fixtures") -- worth considering as the
+next unit of work even before B-2/B-3 close, since nothing else is currently
+unblocked.
 
-Previously, before US-003:
-
-**US-003 � Create and configure a store** is next in the delivery order
-(`docs/walmart-slice-plan.md:73-82`), then US-004.
-
-Two things to settle alongside it, neither blocking the start:
-
-- **B-10** is one paste and closes US-002a.
-- **Screens.** The slice plan gives slice 1 `UI-01 sign in` and `UI-02 store
-  select and create` (`walmart-slice-plan.md:80`), and none exist -- slice 1
-  has been built API-only. US-003 should carry its screen rather than
-  deferring it again, or slice 1 closes with no way for the Owner to check
-  any of it without reading tests.
+**Process (agreed 2026-10-27, held to twice more this session): two audit
+passes per story.** US-003 took five; US-004 took two, both blocking findings
+closed in a single fix round, with pass 2 independently re-verifying the fix
+rather than trusting the implementer's report (confirmed by analytical
+discrimination proof where the auditor had no edit access to mutate code
+itself). From here, after pass 2 any remaining *non-blocking* finding is
+written to this file as a numbered carry-forward item instead of triggering
+another full round. A third pass is for a live defect, not a missing pin.
 
 Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 
@@ -328,7 +474,7 @@ Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 | Slice | Stories | Status |
 |---|---|---|
 | 0 Skeleton | -- | **done.** Step 5 guardrail proof demonstrated 2026-10-24 |
-| 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. **US-003 audited to a pass, blocked on B-11**; carries B-12, B-13, B-14. US-004 not started |
+| 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003 audited to a pass, blocked on B-11; carries B-12, B-13, B-14. **US-004 implemented and audited to a pass** (`a9ea6aa`); carries B-15. All four stories exist in code; **slice not deployed (B-5)** |
 | 2 Orders | US-005ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦007 | not started |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
 | 4 Settlement evidence | US-015ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦017 | not started |
@@ -357,6 +503,8 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | B-12 | **No audit event type for store creation.** `api-service-design.md:1186-1209` names `store_settings_updated`, `store_timezone_changed`, `store_assignment_changed` -- but nothing for creation. Slice 0 makes an audit event mandatory on every write, so one *must* be emitted; only the type string is unspecified. `store_created` was chosen by convention, disclosed at the emit site. It is now **load-bearing**: it is the token keeping `POST /stores` and `PATCH` idempotency keys apart (F-31, F-62) | Nothing today; confirm before slice 2 copies the convention | **You** -- confirm the string |
 | B-13 | **Who may move `managed_from`?** The capability matrix (`walmart-user-stories.md:671`) grants Admin "change store settings". But `:171` says `managed_from` is set by **the Owner**, `database-schema.md:193` says "**Owner** may change it, audited", and `:693` denies Admin "re-post an order into or out of a protected period" -- which is the effect of moving `managed_from` across the `pre_onboarding` boundary. **Interim: Owner-only**, the intersection of all readings, since the narrower one cannot grant a power no document grants. Enforced in code and labelled interim | A rule is being applied that no document states | **You** -- rule on it |
 | B-14 | **`managed_from` auto-default is not implemented.** `walmart-user-stories.md:171` and `database-schema.md:193` both say it defaults to the month the store is added; the code stores `NULL` and reports it as an activation blocker. The spec is **circular here**: "the month the store is added" is a calendar month in the store's timezone, which AC-02 forbids guessing and which may itself be `NULL` at creation. The safe direction was taken | Slice 2, when `scope_status_code` is computed against a NULL boundary | **You** -- resolve the circularity |
+| B-15 | **Who may read a store's team list?** No capability-matrix row or AC names who may call `GET /stores/{store_id}/managers`. The two nearest rows answer different questions ("View stores in scope" is *which stores*, not *who else is on this one*; "Administer users" is user administration generally). **Interim: Owner-only** -- the same narrowest-available-reading precedent as B-13 -- enforced in code and labelled interim in both `src/main.py:569-588` and `src/team/service.py:148-160` | Nothing today; confirm before any other story reads this list | **You** -- rule on it |
+| B-16 | **Is `theme.txt` (untracked, repo root) this project's design-system contract?** It pins an exact "Botanical / Organic Serif" palette, Google Fonts, a mandatory SVG grain overlay, pill buttons and arch imagery, and was used to write 34 uncommitted tests (`tests/test_ui001_sign_in_screen.py`) against both the sign-in screen and the authenticated shell. It directly contradicts `docs/walmart-store-manager-design.md`'s UX baseline ("data-dense... compact typography... desktop-first density"), and its own preamble addresses "React, Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses. Neither file has been committed, deleted, or built against | Any future UI-01/shell work | **You** -- confirm intent or have it removed |
 
 B-5 is the remaining critical-path item, and only when you first deploy. Local development is unblocked. B-2 and B-3 run in parallel and should start now.
 
@@ -398,6 +546,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-27 | **US-004 implemented and audited to a clean pass (`a9ea6aa`).** Full pipeline, spec-oracle first (clean scoping: Manager-only, no migration needed, API-only, no AC requires a screen). Test-author wrote 26 tests against all four ACs plus role-ordering and the F-55 idempotency discipline, one disclosed skip (who may assign an Admin -- unnamed by any document). Pass 1 failed on three blocking findings, independently verified by me rather than taken from either agent's report: `GET /stores/{store_id}/managers` shipped with zero test coverage (F-70); its read authority had been silently set to "any caller with scope" with no capability-matrix row answering the question and no blocker raised (F-71); and the sharpest one, F-72 -- the replay-target guard's extra `store_id`/`action` checks were correct but entirely unproven, and deleting either would silently let a revoke replay as a no-op grant, breaking AC-03 in two HTTP calls. Fix round closed all three: F-70/72 with seven new tests (the guard code itself untouched -- it was already correct, only unproven); F-71 resolved via the B-13 precedent (narrowest reading, Owner-only, labelled interim, raised as **B-15**). Pass 2: clean, one new non-blocking finding (F-81, the F-71 fix's docstring citing a blocker that didn't yet exist in this file -- closed by this entry). **Also this session:** found an uncommitted, orphaned test-author artifact (`tests/test_ui001_sign_in_screen.py`) built against an untracked `theme.txt` that contradicts this project's own documented UX baseline and reads as foreign content (wrong stack referenced throughout). Escalated as **B-16** rather than building on it, deleting it, or silently rewriting it -- neither file touched. |
 | 2026-10-27 | **US-003 implemented and audited to a pass (`cda7b0e`). Not done -- B-11 blocks AC-02's third clause.** Full pipeline, five audit passes, **four failures**: no auth gate on either new write endpoint (F-28, F-01 recurring); AC-02 proven only at the database (F-29); the identity UPDATE with no scope predicate (F-30); replay bound to neither entity nor event type (F-31); `extra='ignore'` returning 200 with the old value for the *real* column name (F-44); `add_store_note` left on the replay pattern its own commit declared broken (F-46); **F-55**, where the duplicate-key fix made the honest retry a 409 while the sloppy one replayed; `timezone` unvalidated so nonsense reported as "fully configured" (F-56); and a final family of creation-path behaviour no test constrained (F-62…F-65). **195 passed, 1 skipped**, scan clean, 0 suppressions, hermetic alone. The lesson: **every fix round created a new unaudited path** -- F-63 is the sharpest, a fix added *ahead* of an existing branch silently orphaned it. Also: a test comment explaining why an input is avoided is a defect report, not a justification. Three new blockers raised rather than guessed (B-11, B-12, B-13) plus B-14. Built API-only again -- slice 1 still has no screens. |
 | 2026-10-24 | **Slice 0 step 5 demonstrated -- slice 0 is complete.** Pushed `guardrail-proof` (`9c98bf6`) carrying `order_status` in `src/`. The **Static invariant scan** job failed at the scan step while **Tests** and **Schema invariants** both stayed green, and clean `main` (`6766b06`) passed the same workflow. The guardrail provably blocks. Two earlier branches at `3b27e44` had also gone red but proved nothing -- they predated the `APP_ENV` fix and were failing for an unrelated reason, which is why step 5 had stayed open. Branch deleted both sides. Every "scanner clean" before today was an unvalidated signal; from now on it is real. |
 | 2026-10-24 | **US-002 split; US-002a (AC-01, AC-02) implemented, audited and committed (`10b6fda`).** AC-03/AC-04 are UI-shell criteria with no shell, no form and no filtered list to act on -- split out as US-002b rather than inventing a shell plus stub screens. AC-02 needed no production code; **AC-01 did**: `is_active` was acting as an unagreed visibility filter, and the two read paths disagreed about it (F-21). Escalated rather than defaulted; the Owner closed it as B-7, and `include_inactive` was then **removed** rather than flipped to `True`, so the exclusion cannot be reintroduced by a keyword argument. **21 lines of production change, 14 tests, 110 passing**, scan clean, 0 suppressions. Three audit passes: pass 1 failed on F-21; **pass 2 failed because mutation testing had reverted the uncommitted fix with `git checkout`** and the tree genuinely had no fix in it -- the auditor was right and the status report was wrong; pass 3 failed on F-25, this file contradicting its own commit. F-22/F-23/F-24 closed (SQL-spy pin, decoy users for hermeticity, header comparison). Still open: B-9 writes-to-inactive, B-10 spec amendment, and B-6 narrowed-not-closed (two spy mutations survive -- cursor bypass, textual-not-semantic scope match). |
