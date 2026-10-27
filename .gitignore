@@ -18,3 +18,6 @@ opencode.jsonc
 # Superseded by the specification in "new deisgn/". Not part of the rebuild
 # and deliberately untracked -- its history remains in commits up to 6b7f8ee.
 old_pro/
+
+# Non-normative design inspiration (B-16: advisory only, not tracked)
+theme.txt
