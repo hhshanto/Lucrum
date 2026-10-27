@@ -170,6 +170,31 @@ def _event_type_for_update(fields: dict[str, Any]) -> str:
     return "store_settings_updated"
 
 
+def _replay_created_store(
+    conn: psycopg.Connection, scope: StoreScope, existing_event: dict[str, Any]
+) -> dict[str, Any]:
+    """The one implementation of "is this ``operation_id`` genuinely a
+    replay of a ``store_created`` request, and if so, which store" (F-63,
+    US-003 audit).
+
+    Called from both places ``create_store`` can discover a prior
+    ``store_created`` event for this ``operation_id`` -- the ordinary,
+    sequential pre-check and the rare concurrency backstop below. Before
+    this was extracted, each carried its own copy of the same two
+    guarantees (F-31's ``check_replay_target``, F-34/F-50's caller-scoped
+    fetch instead of a fabricated Owner scope), and the pre-check made the
+    backstop unreachable in every single-threaded test -- meaning a
+    mutation to *either* copy could survive the whole suite undetected,
+    with only the untested one actually broken. One function, called
+    twice, is the only way a mutation to this judgement is guaranteed to
+    be caught regardless of which path reaches it.
+    """
+    audit.check_replay_target(
+        existing_event, event_type="store_created", entity_type="store"
+    )
+    return repository.get_store(conn, scope, existing_event["entity_id"])
+
+
 def create_store(
     conn: psycopg.Connection,
     scope: StoreScope,
@@ -201,11 +226,7 @@ def create_store(
     # same way there).
     existing_event = audit.find_by_operation(conn, operation_id)
     if existing_event is not None:
-        audit.check_replay_target(
-            existing_event, event_type="store_created", entity_type="store"
-        )
-        existing = repository.get_store(conn, scope, existing_event["entity_id"])
-        return existing, True
+        return _replay_created_store(conn, scope, existing_event), True
 
     try:
         with conn.transaction():
@@ -243,28 +264,14 @@ def create_store(
                 ),
             )
     except audit.DuplicateOperation as replay:
-        # F-55: a concurrent racer won between the check above and this
-        # call's own insert -- the exact same replay discipline applies,
-        # it just could not be resolved by the pre-check this time.
-        # F-31 (US-003 audit): a DuplicateOperation alone does not mean this
-        # call is a replay of *this* request -- the same Idempotency-Key
-        # could have been spent on an entirely different write (a note, a
-        # rename). Confirm the existing event really is a store_created
-        # event before trusting its entity_id as "the store this call
-        # created"; otherwise this would hand back an unrelated entity
-        # under a 200/201 that looks exactly like success.
-        audit.check_replay_target(
-            replay.existing_event, event_type="store_created", entity_type="store"
-        )
-        # The attempted insert above was rolled back along with the audit
-        # insert that detected the replay (see module docstring) -- nothing
-        # from this call's payload was persisted. F-34: the actor's own
-        # resolved scope is used here, not a fabricated Owner scope -- sound
-        # today only because require_can_create_store already restricted
-        # this function to the Owner, but a fabricated scope would become a
-        # live escalation the moment that restriction ever widens.
-        existing = repository.get_store(conn, scope, replay.existing_event["entity_id"])
-        return existing, True
+        # F-63: the concurrency backstop -- a racer committed between the
+        # pre-check above and this call's own insert (both were attempted
+        # before either had committed, so the pre-check genuinely saw
+        # nothing). The attempted insert above was rolled back along with
+        # the audit insert that detected the replay (see module docstring)
+        # -- nothing from this call's payload was persisted. Same helper,
+        # same guarantees as the pre-check above.
+        return _replay_created_store(conn, scope, replay.existing_event), True
 
     return store, False
 

@@ -27,6 +27,7 @@ __all__ = [
     "DuplicateOperation",
     "ReplayConflict",
     "check_replay_target",
+    "find_by_operation",
 ]
 
 

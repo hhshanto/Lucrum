@@ -1829,10 +1829,13 @@ class TestF50CreateStoreReplayUsesTheGivenScope:
                 restricted_scope,
                 actor_id=None,
                 role="owner",
-                # A different walmart_store_key: this call must be refused
-                # on the operation_id-replay path (F-50), not accidentally
-                # short-circuited by the F-45 duplicate-key path, which a
-                # repeated key would trigger first and never reach it.
+                # A different walmart_store_key (F-66, US-003 audit): the
+                # F-55 fix means the operation_id pre-check now runs before
+                # any insert, so a repeated key would no longer trip the
+                # F-45 duplicate-key path first either way. The differing
+                # key here instead proves the refusal below comes from the
+                # operation_id-replay path (F-50) -- the only path it could
+                # possibly come from, since a fresh key rules out F-45.
                 fields={
                     **fields,
                     "name": "F50 Should Not Apply",
@@ -2146,3 +2149,219 @@ class TestF59UniqueViolationReraisesOnAnUnrelatedConstraint:
                 )
         finally:
             conn.execute = real_execute
+
+
+# ---------------------------------------------------------------------------
+# invariant-auditor pass 4 on 770012d -- F-62 through F-65.
+# ---------------------------------------------------------------------------
+
+
+class TestF62StoreCreatedAuditEventIsPinned:
+    """F-62 (US-003 audit). F-37 pinned the rename event's audit row;
+    nobody pinned creation's. ``event_type="store_created"`` ->
+    ``"store_settings_updated"`` survived entirely -- and would re-open
+    F-31, since a key already spent on a rename would then satisfy
+    ``check_replay_target`` on a later create.
+    """
+
+    def test_f62_create_store_is_an_audited_write_with_the_correct_event_type(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f62-create-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        payload = _store_payload(name="F62 Audited Create Store")
+        r = _post_store(client, token, payload, operation_id=op_id)
+        assert r.status_code == 201, r.text
+        store_id = r.json()["data"]["id"]
+
+        rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["event_type"] == "store_created"
+        assert str(row["entity_id"]) == store_id
+        assert str(row["store_id"]) == store_id
+        # F-37's identity-pinning, mirrored here for the create side.
+        assert str(row["actor_id"]) == str(owner["id"])
+        assert row["after_state"]["walmart_store_key"] == payload["walmart_store_key"]
+        assert row["after_state"]["name"] == payload["name"]
+
+    def test_f62_a_key_spent_on_a_rename_cannot_be_replayed_as_a_create(
+        self, client, migrated_database
+    ):
+        """F-31's guard, pinned on the create side specifically: a key
+        already recorded as ``store_settings_updated`` must not satisfy a
+        later ``POST /stores`` as if it were a ``store_created`` replay --
+        the gap ``event_type="store_created"`` -> ``"store_settings_updated"``
+        would otherwise open back up."""
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(c, "F62 Patch Then Create Store")
+            owner = _create_user(c, role="owner", password="f62-cross-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        patched = _patch_store(
+            client, token, store_id, {"name": "F62 Renamed"}, operation_id=op_id
+        )
+        assert patched.status_code == 200, patched.text
+
+        create_payload = _store_payload(name="F62 Should Not Be Created")
+        reused = _post_store(client, token, create_payload, operation_id=op_id)
+        assert reused.status_code == 409, reused.text
+
+        assert (
+            _count_stores_matching(
+                migrated_database, walmart_store_key=create_payload["walmart_store_key"]
+            )
+            == 0
+        )
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+        assert audit_rows[0]["event_type"] == "store_settings_updated"
+
+
+class TestF63TheConcurrencyBackstopIsStillReachable:
+    """F-63 (US-003 audit). The F-55 pre-check sees the connection's own
+    prior writes and runs before the insert, so nothing single-threaded
+    reaches the ``except audit.DuplicateOperation`` backstop any more --
+    before the refactor, that made the backstop's own independent copy of
+    F-31's guard and F-34/F-50's caller-scoped fetch untested, and a
+    mutation to either could survive undetected. Collapsing both branches
+    into ``_replay_created_store`` means a mutation there is caught by
+    *any* test that reaches *either* branch -- this one specifically
+    forces the backstop branch, deterministically, without threads.
+    """
+
+    def test_f63_backstop_replays_when_the_pre_check_misses_a_concurrent_write(
+        self, conn
+    ):
+        from src import audit
+        from src.scoping import StoreScope
+        from src.stores import service as stores_service
+
+        scope = StoreScope.owner(actor_id=uuid.uuid4())
+        op_id = str(uuid.uuid4())
+        fields = {
+            "name": "F63 Backstop Store",
+            "walmart_store_key": f"F63-{uuid.uuid4().hex[:12]}",
+            "timezone": "America/New_York",
+            "reporting_currency_code": "USD",
+            "managed_from_year": 2026,
+            "managed_from_month": 7,
+        }
+
+        # The "concurrent" write that has already committed under this
+        # operation_id by the time the second call below is made.
+        first_store, first_replayed = stores_service.create_store(
+            conn, scope, actor_id=None, role="owner", fields=fields, operation_id=op_id
+        )
+        assert first_replayed is False
+
+        real_find_by_operation = audit.find_by_operation
+        calls = {"n": 0}
+
+        def _miss_on_the_pre_check_only(conn_, operation_id_):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # Simulates the race: this row is not visible to the
+                # pre-check yet, forcing create_store to actually attempt
+                # the insert below.
+                return None
+            return real_find_by_operation(conn_, operation_id_)
+
+        audit.find_by_operation = _miss_on_the_pre_check_only
+        try:
+            second_store, second_replayed = stores_service.create_store(
+                conn,
+                scope,
+                actor_id=None,
+                role="owner",
+                # A different walmart_store_key and name: this call must be
+                # refused by the operation_id ledger (audit_events), not by
+                # F-45's duplicate-key path.
+                fields={
+                    **fields,
+                    "name": "F63 Should Not Apply",
+                    "walmart_store_key": f"F63-second-{uuid.uuid4().hex[:12]}",
+                },
+                operation_id=op_id,
+            )
+        finally:
+            audit.find_by_operation = real_find_by_operation
+
+        assert second_replayed is True
+        assert second_store["id"] == first_store["id"]
+
+        # The second call's own payload must never have been inserted as a
+        # row of its own -- the backstop replayed, it did not also create.
+        rows = conn.execute(
+            "select count(*) from stores where name = %s", ("F63 Should Not Apply",)
+        ).fetchone()
+        assert rows["count"] == 0
+
+
+class TestF64UpdatingCurrencyCodeActuallyWorks:
+    """F-64 (US-003 audit). Every existing ``currency_code`` test on PATCH
+    was either a creation assertion or a rejection -- the one request field
+    whose name differs from its column (F-44's exact asymmetry) had never
+    been exercised in the direction that must actually work.
+    """
+
+    def test_f64_patch_currency_code_changes_reporting_currency_code_only(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            store_id = _create_store_db(
+                c,
+                "F64 Currency Update Store",
+                timezone="America/Chicago",
+                reporting_currency_code="USD",
+            )
+            owner = _create_user(c, role="owner", password="f64-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        r = _patch_store(client, token, store_id, {"currency_code": "EUR"})
+        assert r.status_code == 200, r.text
+        assert r.json()["data"]["currency_code"] == "EUR"
+        assert r.json()["data"]["timezone"] == "America/Chicago"
+
+        row = _fetch_store_row(migrated_database, store_id)
+        assert row["reporting_currency_code"] == "EUR"
+        assert row["timezone"] == "America/Chicago"
+
+
+class TestF65RoleCheckedBeforeTheReplayPreCheck:
+    """F-65 (US-003 audit). Every AC-03 creation test uses a fresh
+    ``operation_id``, so moving ``require_can_create_store`` below the
+    F-55 pre-check would survive the suite -- and would let a non-Owner
+    presenting an ``operation_id`` already spent on a ``store_created``
+    get 200 ``replayed: true`` instead of 403, which falsifies AC-03's own
+    sentence for exactly that caller.
+    """
+
+    def test_f65_manager_presenting_a_spent_create_operation_id_still_gets_403(
+        self, client, migrated_database
+    ):
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f65-owner-pw")
+            manager = _create_user(c, role="manager", password="f65-manager-pw")
+        owner_token = _sign_in(client, owner, with_mfa=True)
+        manager_token = _sign_in(client, manager, with_mfa=False)
+
+        op_id = _idempotency_key()
+        created = _post_store(
+            client, owner_token, _store_payload(name="F65 Owner Created"), operation_id=op_id
+        )
+        assert created.status_code == 201, created.text
+
+        attempt = _post_store(
+            client,
+            manager_token,
+            _store_payload(name="F65 Manager Should Not Replay"),
+            operation_id=op_id,
+        )
+        assert attempt.status_code == 403, attempt.text
+        assert attempt.status_code != 200
