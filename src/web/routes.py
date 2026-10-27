@@ -1,0 +1,187 @@
+"""UI-01 — public landing page, sign-in screen, authenticated shell, sign-out.
+
+HTML transport only. Every business rule reachable from here already exists
+and is already tested in ``src.access.service`` (``sign_in`` / ``authenticate``
+/ ``resolve_scope`` / ``sign_out``) and ``src.stores.repository``
+(``list_stores``) -- this module adds no new rule, only a browser-shaped way
+to reach the existing ones: a session cookie instead of an ``Authorization``
+header, and a redirect/re-render instead of a JSON error body. The same
+discipline ``main._authenticate_request``'s own docstring states ("two
+copies of an authentication gate diverge exactly as silently... the moment
+one of them picks up a fix") is why this module never re-implements password
+checking, lockout, MFA, or scope resolution -- it only calls them.
+
+**Disclosed, narrow gap:** no test in ``tests/test_ui001_sign_in_screen.py``
+signs in as an Owner or Admin through this HTML form, and MFA entry for the
+HTML form is not built here. ``access_service.sign_in`` already raises
+``MfaRequired`` for a privileged account with no TOTP code; this module's
+``POST /sign-in`` catches that (it is a subclass of ``AuthenticationFailed``,
+same as every other rejected sign-in) and renders the same generic failure
+message, with no second field to collect a code. A Manager (``mfa_enabled``
+optional, per access-v1) signs in through this form exactly as every test
+below exercises; an Owner/Admin signing in through the *browser* form today
+gets a generic "invalid" message instead of a prompt for their code. This is
+a deliberately undone piece of work, not a silent omission -- see the session
+report accompanying this change.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from src.access import repository as access_repository
+from src.access import service as access_service
+from src.db.connection import connection
+from src.stores import repository as stores_repository
+
+router = APIRouter()
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# The cookie carries the exact same opaque, random, server-validated token
+# `access_service.sign_in` already issues for the JSON API -- it is not
+# separately signed or encrypted (see `access_service`'s own module
+# docstring: the database never stores the raw token, only its hash, and a
+# leaked cookie is revocable server-side exactly like a leaked bearer
+# token). HttpOnly so client-side script cannot read it; SameSite=Lax as a
+# baseline CSRF mitigation for a cookie-authenticated form post.
+SESSION_COOKIE_NAME = "lucrum_session"
+
+# One generic message for every sign-in failure reason this form can
+# produce (InvalidCredentials, AccountLocked, MfaRequired alike) -- the same
+# non-disclosure rule `main._AUTH_FAILURE_RESPONSES`/`_DEFAULT_AUTH_FAILURE`
+# already apply to the JSON API, reused rather than re-decided here. F-13
+# (whether AccountLocked should ever read differently from the rest) is an
+# open contradiction this module does not resolve either -- see
+# PROGRESS.md and the test file's own skip for it.
+_SIGN_IN_FAILURE_MESSAGE = "Invalid email, password, or authentication code."
+
+
+def _cookie_token(request: Request) -> str | None:
+    return request.cookies.get(SESSION_COOKIE_NAME)
+
+
+def _optional_session(conn, request: Request) -> access_service.AuthenticatedSession | None:
+    """The cookie-backed counterpart of ``main._authenticate_request`` for a
+    route that must render *something* either way, rather than refuse
+    outright. A missing cookie and an invalid one both resolve to "not
+    signed in" -- the same collapse ``SessionInvalid`` already makes for
+    unknown, expired, and revoked tokens on the header-based path.
+    """
+    token = _cookie_token(request)
+    if not token:
+        return None
+    try:
+        return access_service.authenticate(conn, token)
+    except access_service.SessionInvalid:
+        return None
+
+
+@router.get("/")
+def root(request: Request):
+    return templates.TemplateResponse(request, "index.html", {})
+
+
+@router.get("/sign-in")
+def sign_in_form(request: Request):
+    with connection() as conn:
+        session = _optional_session(conn, request)
+
+    if session is not None:
+        # Already authenticated: never re-render the password form. A
+        # redirect to the shell is followed by the caller and lands on a
+        # page with no password field at all, which satisfies the
+        # requirement without a second, passwordless template variant that
+        # could quietly drift from the real one.
+        return RedirectResponse("/app", status_code=303)
+
+    return templates.TemplateResponse(
+        request, "sign_in.html", {"email": "", "error": None}
+    )
+
+
+@router.post("/sign-in")
+def sign_in_submit(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+):
+    with connection() as conn:
+        try:
+            result = access_service.sign_in(conn, email=email, password=password)
+        except access_service.AuthenticationFailed:
+            # Preserve the lockout bookkeeping `sign_in` already wrote
+            # before raising -- the same discipline `main.create_session`
+            # applies: `connection()` rolls back on any exception, which
+            # would otherwise erase the failed-attempt count along with the
+            # rejected sign-in.
+            conn.commit()
+            return templates.TemplateResponse(
+                request,
+                "sign_in.html",
+                {"email": email, "error": _SIGN_IN_FAILURE_MESSAGE},
+            )
+
+    response = RedirectResponse("/app", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        result.token,
+        httponly=True,
+        samesite="lax",
+        # No `secure` flag here: local development serves plain HTTP.
+        # Production sits behind TLS termination and must set this --
+        # disclosed rather than silently decided, same as every other
+        # deployment-environment gap this project tracks in PROGRESS.md.
+    )
+    return response
+
+
+@router.get("/app")
+def shell(request: Request):
+    token = _cookie_token(request)
+    if not token:
+        return RedirectResponse("/sign-in", status_code=303)
+
+    with connection() as conn:
+        try:
+            session = access_service.authenticate(conn, token)
+            # Scope is resolved fresh on every request, never cached on the
+            # session or the cookie -- AC-03: an assignment or a session
+            # revoked after this cookie was issued must stop working on the
+            # very next request, not the next sign-in. `resolve_scope`
+            # itself also raises `SessionInvalid` if the user has since
+            # been deactivated or deleted (see its own docstring) -- caught
+            # here alongside `authenticate`'s own failures, not separately.
+            scope = access_service.resolve_scope(conn, session.user_id)
+            user = access_repository.get_user(conn, session.user_id)
+            stores = stores_repository.list_stores(conn, scope)
+        except access_service.SessionInvalid:
+            return RedirectResponse("/sign-in", status_code=303)
+
+    return templates.TemplateResponse(
+        request,
+        "shell.html",
+        {"user_email": user["email"], "stores": stores},
+    )
+
+
+@router.post("/sign-out")
+def sign_out(request: Request):
+    token = _cookie_token(request)
+    if token:
+        with connection() as conn:
+            # Revokes the session server-side (AC-04): the token is
+            # rejected on its very next use, not merely dropped by the
+            # client -- this is the same `access_service.sign_out` the
+            # JSON API's `DELETE /auth/session` already calls, reached here
+            # through a browser-shaped form post instead of a bearer token.
+            access_service.sign_out(conn, token)
+
+    response = RedirectResponse("/sign-in", status_code=303)
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return response

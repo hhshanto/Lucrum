@@ -1,0 +1,222 @@
+/*
+ * Lucrum design tokens and base styles.
+ *
+ * This is a sober, data-dense operations tool, not a marketing page
+ * (docs/walmart-store-manager-design.md, "UX baseline"). theme.txt is
+ * non-normative mood/palette inspiration only (PROGRESS.md, B-16) -- the
+ * warm, paper-like palette below borrows that mood loosely; nothing here
+ * is a literal theme.txt value (no theme.txt hex, no theme.txt font name,
+ * no grain overlay, no pill-shaped buttons, no arch imagery).
+ *
+ * Every color used anywhere in a template goes through one of the custom
+ * properties below -- declared once each, so a later re-theme changes
+ * this block and nothing else.
+ */
+
+:root {
+  --color-bg: #f7f4ee;
+  --color-surface: #ffffff;
+  --color-text: #2b2520;
+  --color-text-muted: #5b5248;
+  --color-border: #d8d0c2;
+  --color-primary: #7a4a24;
+  --color-primary-contrast: #ffffff;
+  --color-danger: #8a2a1e;
+  --color-danger-bg: #f4e3df;
+  --color-focus-ring: #2b2520;
+
+  --font-heading: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  --font-body: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  --radius-sm: 3px;
+
+  --motion-fast: 120ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  margin: 0 0 var(--space-3) 0;
+}
+
+a {
+  color: var(--color-primary);
+}
+
+/* ---------------------------------------------------------------------
+ * Focus visibility (US-032 AC-01). A visible, non-removed indicator on
+ * every interactive element -- never `outline: none` without a
+ * box-shadow replacement in the same rule.
+ * --------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+/* ---------------------------------------------------------------------
+ * Layout shells
+ * --------------------------------------------------------------------- */
+
+.landing,
+.auth-shell {
+  max-width: 420px;
+  margin: 10vh auto 0 auto;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.tagline {
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4) 0;
+}
+
+.field {
+  margin-bottom: var(--space-3);
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.field input {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+.btn {
+  display: inline-block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-family: var(--font-body);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--motion-fast) ease-out;
+}
+
+.btn:hover {
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.btn-link {
+  background: transparent;
+  color: var(--color-primary);
+  border: none;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.alert {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+
+.alert-error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.app-header .brand {
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.account-email {
+  color: var(--color-text-muted);
+}
+
+.sign-out-form {
+  margin: 0;
+}
+
+.app-shell {
+  padding: var(--space-4);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.store-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.store-list-item {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.store-list-item:last-child {
+  border-bottom: none;
+}
+
+.empty-state {
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------
+ * Motion (US-032 AC-04). Every transition this stylesheet declares is
+ * neutralised for a visitor who has asked for reduced motion.
+ * --------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

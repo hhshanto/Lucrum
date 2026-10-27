@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lucrum</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">Lucrum</div>
+    <div class="account">
+      <span class="account-email">{{ user_email }}</span>
+      <form method="post" action="/sign-out" class="sign-out-form">
+        <button type="submit" class="btn btn-link">Sign out</button>
+      </form>
+    </div>
+  </header>
+  <main class="app-shell">
+    <h1>Your stores</h1>
+    {% if stores %}
+    <ul class="store-list">
+      {% for store in stores %}
+      <li class="store-list-item">{{ store.name }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty-state">No stores are assigned to your account yet.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

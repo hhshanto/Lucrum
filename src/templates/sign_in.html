@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Lucrum</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <main class="auth-shell">
+    <h1>Lucrum</h1>
+    <p class="tagline">Sign in to continue.</p>
+
+    {% if error %}
+    <div role="alert" class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/sign-in" class="sign-in-form" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          value="{{ email or '' }}"
+          autocomplete="username"
+          required
+        >
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          required
+        >
+      </div>
+      <button type="submit" class="btn">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

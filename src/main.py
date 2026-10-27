@@ -12,11 +12,13 @@ from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src import audit
@@ -28,6 +30,7 @@ from src.db.connection import close_pool, connection, init_pool
 from src.scoping import Forbidden, OutOfScope, StoreScope
 from src.stores import repository, service as stores_service
 from src.team import repository as team_repository, service as team_service
+from src.web.routes import router as web_router
 
 
 @asynccontextmanager
@@ -46,6 +49,17 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# UI-01: the sign-in screen, authenticated shell, and the stylesheet both
+# render against. `StaticFiles` must be mounted on the `app` instance
+# itself (an `APIRouter` cannot mount a sub-application), so this one line
+# lives here; every route it serves is defined in `src/web/routes.py`.
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).resolve().parent / "static")),
+    name="static",
+)
+app.include_router(web_router)
 
 
 def _bearer_token(header: str) -> str:

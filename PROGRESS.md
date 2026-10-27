@@ -12,6 +12,8 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 **A second, unrelated item surfaced and was deliberately not acted on this session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` exist from an apparently-interrupted prior session. `theme.txt` presents itself as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) but **contradicts** `docs/walmart-store-manager-design.md`'s own UX baseline ("a serious internal finance-and-operations tool... data-dense... compact typography... desktop-first density") and reads as foreign content (its own preamble addresses "React, Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses). Recorded as **B-16**. Neither file was committed, deleted, or built against -- left exactly as found so nothing is silently decided either way.
 
+**UI-01 (sign-in screen and authenticated shell) implemented and made to pass against the test-author's revised, theme-agnostic spec (`tests/test_ui001_sign_in_screen.py`, committed `a1b61c7`).** `src/templates/`, `src/static/css/app.css`, and `src/web/routes.py` now exist; **34 passed, 1 skipped** (F-13, unchanged) against that file alone, **262 passed, 3 skipped** for the full suite, guardrail scan clean (24 files, 0 suppressions). `python-multipart` added to `requirements.txt` (confirmed necessary by reading the installed Starlette's own `form()` implementation: it asserts `parse_options_header is not None` before looking at content type at all, so it is required for the plain url-encoded sign-in form too, not only multipart). No new rule was implemented -- every route here calls `access_service.sign_in` / `authenticate` / `resolve_scope` / `sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through a cookie instead of a bearer header. Full story detail below the US-004 section.
+
 ---
 
 ## US-004 -- manage store assignments
@@ -129,6 +131,88 @@ its own named module** (US-003 reached into `audit.py`, `scoping.py`, and
 slice-0's `add_store_note` three times). `src/team/*` only ever *calls*
 `stores_repository.get_store` and `audit.*`; it edits neither. Not a rule,
 but a sign the module boundaries drawn in slice 0 are holding.
+
+---
+
+## UI-01 -- sign-in screen and authenticated shell
+
+Built against `tests/test_ui001_sign_in_screen.py` as committed at `a1b61c7`
+-- the test-author's own revision, written *after* the Owner closed B-16
+("`theme.txt` is inspiration, not a literal spec"), so every Group-5
+assertion in that file is already theme-agnostic (a token declared once, two
+independently-settable typography tokens, a real WCAG contrast floor) rather
+than pinned to any exact hex or font name. Nothing in this file was
+weakened, rewritten, or skipped to make it pass; the one skip already in it
+(`test_f13_account_locked_disclosure_is_an_open_question`) is the
+pre-existing, deliberate F-13 skip, untouched.
+
+**No new business rule was implemented.** Every route in `src/web/routes.py`
+calls a function `src/access/service.py` already implements and
+`test_us001_sign_in.py` already proves: `sign_in`, `authenticate`,
+`resolve_scope`, `sign_out`, plus `stores_repository.list_stores` for the
+shell's store list. The only new work is transport -- an opaque,
+server-validated session token carried in an `HttpOnly`, `SameSite=Lax`
+cookie instead of an `Authorization: Bearer` header -- and presentation
+(`src/templates/*.html`, `src/static/css/app.css`). `python-multipart` was
+added to `requirements.txt`; its necessity was confirmed by reading the
+installed Starlette's own `Request.form()` (`site-packages/starlette/
+requests.py`), which asserts `parse_options_header is not None` before it
+even looks at the content type, so the dependency is required for the
+plain `application/x-www-form-urlencoded` sign-in post too, not only a
+multipart/file upload, exactly as the test file's own docstring says.
+
+**Routes added**, all in `src/web/routes.py`, registered on `app` via
+`app.include_router` in `src/main.py` (plus one `app.mount("/static", ...)`
+line in `main.py` itself, since an `APIRouter` cannot mount a
+sub-application):
+
+| Route | Behaviour |
+|---|---|
+| `GET /` | 200 html, anonymous landing page |
+| `GET /sign-in` | 200 html form if not authenticated; 303 to `/app` if a valid session cookie is already present (never re-renders the password field to an authenticated visitor) |
+| `POST /sign-in` | form-encoded `email`/`password`; success sets the cookie and 303s to `/app`; failure re-renders the form 200 with the typed email preserved, the password never echoed, and one generic, non-disclosing error message shared by every `AuthenticationFailed` subtype |
+| `GET /app` | anonymous or invalid-cookie -> 303 to `/sign-in`, never a 200 with any protected content, even transiently; authenticated -> 200, shows the caller's email, a sign-out `<form>`, and exactly the stores `repository.list_stores` returns for their freshly-resolved scope -- no currency, no dollar amount, no `Decimal` anywhere |
+| `POST /sign-out` | revokes the session server-side via `access_service.sign_out` (not merely a dropped cookie), deletes the cookie, 303s to `/sign-in` |
+
+**Test results.** This file alone: **34 passed, 1 skipped** (the pre-existing
+F-13 skip). Full suite: **262 passed, 3 skipped**, zero regressions in any
+other test file. Guardrail scan: **clean, 24 files, 0 suppressions**.
+
+**Disclosed gaps -- found by checking my own new routes for the shape of gap
+US-003/US-004's audits kept finding (a branch that is correct but
+unexercised), per the brief's own instruction to report this rather than
+leave it for an auditor:**
+
+- **`GET /app`'s `except access_service.SessionInvalid` branch, and the
+  identical branch inside `_optional_session` (used by `GET /sign-in`), are
+  both present but untested by this file.** Confirmed empirically, not
+  assumed: `response.delete_cookie()` on sign-out causes the TestClient's
+  own cookie jar to drop the cookie entirely (verified with a throwaway
+  probe script against the real pool), so every "after sign-out" test in
+  this file exercises the *no-cookie-at-all* branch (`if not token:
+  redirect`), never the *cookie-present-but-the-token-no-longer-
+  validates* branch (expired, idle-timed-out, or revoked through some
+  other path while the cookie itself survives -- e.g. two tabs, or natural
+  idle/absolute expiry). The code is the same guard `main._authenticate_
+  request`'s header path already proves correct (`authenticate` raising
+  `SessionInvalid` is exactly what `test_us001_sign_in.py` exercises for
+  the JSON API), reused here rather than reimplemented -- but reuse of a
+  proven function is not the same claim as "this call site, this branch,
+  is exercised", and US-004's own register exists precisely to stop those
+  two being mistaken for each other. Not fixed by adding a test myself:
+  the brief is explicit that this is reported, not silently patched by
+  rewriting the spec file beyond what was asked.
+- **`POST /sign-out` with no cookie at all** (the `if token:` guard's false
+  branch, a harmless no-op) is also untested -- lower risk, noted for
+  completeness.
+- **MFA for the HTML form is deliberately not built.** No test in this file
+  signs in as an Owner or Admin through `POST /sign-in`; `access_service.
+  sign_in` already raises `MfaRequired` for a privileged account with no
+  TOTP code, and this form's single `except AuthenticationFailed` renders
+  it as the same generic failure message, with no second field to collect
+  a code. Disclosed in `src/web/routes.py`'s own module docstring as a
+  narrow, deliberate gap, not a silent omission -- the same discipline the
+  brief asked for.
 
 ---
 
@@ -409,43 +493,34 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-**All four of slice 1's stories (US-001-004) now exist in code and have each
-been through the full pipeline and at least one clean audit pass.** The slice
-is not *done* by this project's own definition ("every AC covered by a passing
-test, guardrail green, **and deployed**") -- deployment (B-5) is still an open
-Owner decision, nobody has provisioned a target, and six Owner one-liners
-remain open (B-10, B-11, B-12, B-13, B-14, B-15). None of them block the *code*
-of slice 2 from starting, but slice 1 cannot be declared closed until they're
-answered.
+**All four of slice 1's stories (US-001-004) now exist in code, and UI-01 (the
+sign-in screen and authenticated shell) is implemented on top of them.** The
+slice is not *done* by this project's own definition ("every AC covered by a
+passing test, guardrail green, **and deployed**") -- deployment (B-5) is still
+an open Owner decision, nobody has provisioned a target, and six Owner
+one-liners remain open (B-10, B-11, B-12, B-13, B-14, B-15). None of them
+block the *code* of slice 2 from starting, but slice 1 cannot be declared
+closed until they're answered.
 
-**Two things to put in front of the Owner now, neither invented, neither
-acted on unilaterally this session:**
+**B-16 is closed** (Decisions log, 2026-10-27): `theme.txt` is intentional,
+non-normative mood/palette inspiration layered on top of
+`docs/walmart-store-manager-design.md`'s actual UX baseline, which remains
+authoritative for structure and density. The orphaned test file this
+surfaced (`tests/test_ui001_sign_in_screen.py`) was revised by the
+test-author to assert the underlying engineering/accessibility properties
+instead of any literal theme.txt token, committed at `a1b61c7`, and UI-01 is
+now built and green against that revision -- see the "UI-01" section above
+for the full account, including two disclosed-but-untested branches
+(`GET /app` and `_optional_session`'s `except SessionInvalid` paths, both
+correct-by-reuse of `access_service.authenticate` but not exercised by any
+test in this file, because every "after sign-out" scenario the file builds
+removes the cookie from the client entirely rather than leaving a merely
+stale one behind).
 
-- **The six one-line decisions above**, listed again in "Open blockers" below
-  with exact wording. B-15 is new this session (who may read a store's team
-  list -- interim answer: Owner-only, same posture as B-13).
-- **B-16, new this session, and more consequential than the others**: an
-  uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an
-  untracked `theme.txt` were found sitting in the tree from an apparently
-  interrupted prior session. `theme.txt` presents itself as this project's
-  binding design-system contract and was used to write 34 tests pinning an
-  exact "Botanical / Organic Serif" palette, Google Fonts, a mandatory SVG
-  grain overlay, pill buttons and arch imagery -- across **both** the sign-in
-  screen and the authenticated shell. This directly contradicts
-  `docs/walmart-store-manager-design.md`'s own UX baseline ("a serious
-  internal finance-and-operations tool... data-dense... compact typography...
-  desktop-first density"), and `theme.txt`'s own preamble addresses "React,
-  Next.js, Vue, Tailwind, shadcn/ui" -- none of which this project uses, which
-  is strong evidence the file landed in this repo by accident rather than as
-  an authored decision for Lucrum. **Neither file was committed, deleted, or
-  built against this session** -- left exactly as found, per the standing rule
-  that a contradiction between documents gets reported, not reconciled by
-  whoever finds it. Needs an explicit Owner ruling: is `theme.txt` intended
-  for this project (in which case the UX-baseline document needs to change,
-  not the other way around), or is it foreign content to be deleted and the
-  orphaned test file rewritten against the actual documented baseline (which
-  currently has no concrete tokens -- just principles -- so a real design pass
-  would still be needed either way)?
+**The six one-line Owner decisions below are still open**, listed again in
+"Open blockers" with exact wording. B-15 is from the previous session (who
+may read a store's team list -- interim answer: Owner-only, same posture as
+B-13).
 
 **Once those are answered:** slice 2 (Orders, US-005-007) is next in
 delivery order, but it depends on `walmart-probe` output (C-02, the supported
@@ -474,7 +549,7 @@ Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 | Slice | Stories | Status |
 |---|---|---|
 | 0 Skeleton | -- | **done.** Step 5 guardrail proof demonstrated 2026-10-24 |
-| 1 Access and stores | US-001-004 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003 audited to a pass, blocked on B-11; carries B-12, B-13, B-14. **US-004 implemented and audited to a pass** (`a9ea6aa`); carries B-15. All four stories exist in code; **slice not deployed (B-5)** |
+| 1 Access and stores | US-001-004, UI-01 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003 audited to a pass, blocked on B-11; carries B-12, B-13, B-14. **US-004 implemented and audited to a pass** (`a9ea6aa`); carries B-15. **UI-01 (sign-in screen, authenticated shell) implemented and green** against `tests/test_ui001_sign_in_screen.py` (34 passed, 1 skipped alone; 262 passed, 3 skipped full suite). All four stories exist in code; **slice not deployed (B-5)** |
 | 2 Orders | US-005ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦007 | not started |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
 | 4 Settlement evidence | US-015ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦017 | not started |
@@ -539,6 +614,7 @@ Append here when something is settled that is not a business rule. Business rule
 | 2026-10-24 | US-001 lockout values chosen (not specified by access-v1): threshold 5 failed attempts, lockout duration 15 minutes. Both are `access_policy` rows, reviewable by the Owner without a deploy. |
 | 2026-10-24 | **B-7 closed by the Owner.** `is_active` is not a scope or visibility filter. Owner sees all stores; Admin and Manager see exactly their assignments, inactive ones included. Visibility only -- the write question is explicitly *not* settled (now B-9). This is a **business rule**, so it belongs in `docs/walmart-user-stories.md` after line 109, not here; it is recorded here only until the Owner pastes it (B-10). |
 | 2026-10-24 | **B-8 closed by the Owner.** The current store selection lives in a **server-side session row**, chosen as the option the client cannot tamper with. **It is a pointer, never a grant:** scope must still be resolved per request and the stored selection re-checked against it, or revoking an assignment stops taking effect on the next request as `access-v1` requires. Not yet implemented -- lands with US-002b. |
+| 2026-10-27 | **B-16 closed by the Owner.** `theme.txt` is intentional for this project -- it is not to be followed literally (exact hex values, exact fonts, the mandatory SVG grain technique are not requirements), only as a loose aesthetic direction ("the idea and inspiration"). This does not override `docs/walmart-store-manager-design.md`'s UX baseline (data-dense, compact typography, sober operations tool) -- it is a palette/mood steer layered on top of that baseline, not a replacement for it. Non-normative UX/design guidance, not a business rule, so recorded here rather than requiring a `docs/` amendment (same tier as B-8). The orphaned test file (`tests/test_ui001_sign_in_screen.py`) pinned literal theme.txt compliance throughout its Group 5 and one Group 1 test -- being revised by test-author to test the actual, theme-agnostic engineering/accessibility requirements instead of exact token matches, before any screen is built against it. |
 
 ## Session log
 
@@ -546,6 +622,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-27 | **UI-01 (sign-in screen and authenticated shell) implemented and made green against `tests/test_ui001_sign_in_screen.py` (`a1b61c7`).** No new business rule -- every route calls `access_service.sign_in`/`authenticate`/`resolve_scope`/`sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through an `HttpOnly`/`SameSite=Lax` session cookie instead of a bearer header. Added `src/templates/` (`index.html`, `sign_in.html`, `shell.html`), `src/static/css/app.css` (design tokens: an 18-property `:root` palette each declared once, independent `--font-heading`/`--font-body` tokens, a real `:focus-visible` indicator, a `prefers-reduced-motion` block, body-text-on-background contrast verified at ~13.8:1 against a 4.5:1 floor), and `src/web/routes.py` (`GET /`, `GET`/`POST /sign-in`, `GET /app`, `POST /sign-out`), wired into `src/main.py` via `app.include_router` plus one `app.mount("/static", ...)`. Added `python-multipart` to `requirements.txt` -- confirmed necessary, not assumed, by reading Starlette's own `Request.form()`, which asserts `parse_options_header is not None` before even checking content type. **34 passed, 1 skipped** (pre-existing F-13 skip, untouched) for this file alone; **262 passed, 3 skipped** full suite, zero regressions; guardrail scan clean, 24 files, 0 suppressions. Self-reviewed for the shape of gap US-003/US-004's audits kept finding (a branch correct but unproven) and found one: `GET /app`'s and `_optional_session`'s `except SessionInvalid` branches are both present but untested by this file, because every "after sign-out" scenario the test file builds drops the cookie entirely (confirmed empirically with a throwaway probe script) rather than leaving a merely stale one behind -- disclosed in the "UI-01" section above rather than silently left for an auditor. MFA entry for the HTML form was deliberately not built (no test signs in as Owner/Admin through it) -- disclosed in the route module's own docstring. |
 | 2026-10-27 | **US-004 implemented and audited to a clean pass (`a9ea6aa`).** Full pipeline, spec-oracle first (clean scoping: Manager-only, no migration needed, API-only, no AC requires a screen). Test-author wrote 26 tests against all four ACs plus role-ordering and the F-55 idempotency discipline, one disclosed skip (who may assign an Admin -- unnamed by any document). Pass 1 failed on three blocking findings, independently verified by me rather than taken from either agent's report: `GET /stores/{store_id}/managers` shipped with zero test coverage (F-70); its read authority had been silently set to "any caller with scope" with no capability-matrix row answering the question and no blocker raised (F-71); and the sharpest one, F-72 -- the replay-target guard's extra `store_id`/`action` checks were correct but entirely unproven, and deleting either would silently let a revoke replay as a no-op grant, breaking AC-03 in two HTTP calls. Fix round closed all three: F-70/72 with seven new tests (the guard code itself untouched -- it was already correct, only unproven); F-71 resolved via the B-13 precedent (narrowest reading, Owner-only, labelled interim, raised as **B-15**). Pass 2: clean, one new non-blocking finding (F-81, the F-71 fix's docstring citing a blocker that didn't yet exist in this file -- closed by this entry). **Also this session:** found an uncommitted, orphaned test-author artifact (`tests/test_ui001_sign_in_screen.py`) built against an untracked `theme.txt` that contradicts this project's own documented UX baseline and reads as foreign content (wrong stack referenced throughout). Escalated as **B-16** rather than building on it, deleting it, or silently rewriting it -- neither file touched. |
 | 2026-10-27 | **US-003 implemented and audited to a pass (`cda7b0e`). Not done -- B-11 blocks AC-02's third clause.** Full pipeline, five audit passes, **four failures**: no auth gate on either new write endpoint (F-28, F-01 recurring); AC-02 proven only at the database (F-29); the identity UPDATE with no scope predicate (F-30); replay bound to neither entity nor event type (F-31); `extra='ignore'` returning 200 with the old value for the *real* column name (F-44); `add_store_note` left on the replay pattern its own commit declared broken (F-46); **F-55**, where the duplicate-key fix made the honest retry a 409 while the sloppy one replayed; `timezone` unvalidated so nonsense reported as "fully configured" (F-56); and a final family of creation-path behaviour no test constrained (F-62…F-65). **195 passed, 1 skipped**, scan clean, 0 suppressions, hermetic alone. The lesson: **every fix round created a new unaudited path** -- F-63 is the sharpest, a fix added *ahead* of an existing branch silently orphaned it. Also: a test comment explaining why an input is avoided is a defect report, not a justification. Three new blockers raised rather than guessed (B-11, B-12, B-13) plus B-14. Built API-only again -- slice 1 still has no screens. |
 | 2026-10-24 | **Slice 0 step 5 demonstrated -- slice 0 is complete.** Pushed `guardrail-proof` (`9c98bf6`) carrying `order_status` in `src/`. The **Static invariant scan** job failed at the scan step while **Tests** and **Schema invariants** both stayed green, and clean `main` (`6766b06`) passed the same workflow. The guardrail provably blocks. Two earlier branches at `3b27e44` had also gone red but proved nothing -- they predated the `APP_ENV` fix and were failing for an unrelated reason, which is why step 5 had stayed open. Branch deleted both sides. Every "scanner clean" before today was an unvalidated signal; from now on it is real. |
