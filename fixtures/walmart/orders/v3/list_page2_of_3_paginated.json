@@ -1,0 +1,600 @@
+{
+  "list": {
+    "meta": {
+      "totalCount": 587,
+      "limit": 200,
+      "nextCursor": "?limit=200&hasMoreElements=true&soIndex=587&cursor=QW9KNG0vanJvYUFETHpFeE9URXlOREF5T1RVMk5UWTBNQT09&poIndex=400&partnerId=<redacted-store-identifier>&sellerId=<redacted-store-identifier>&createdStartDate=2026-05-01T09:19:09.546Z&createdEndDate=2026-10-28T09:18:32.421Z&productInfo=true&shipNodeType=SellerFulfilled&replacementInfo=true"
+    },
+    "elements": {
+      "order": [
+        {
+          "purchaseOrderId": "129126496229011",
+          "customerOrderId": "200015233867859",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1789882456103,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1790622000000,
+            "estimatedShipDate": 1790132400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Jackson",
+              "state": "MS",
+              "postalCode": "39206",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Campbell's Condensed Beef Consomme Soup, 10.5 oz Can",
+                  "sku": "Sty-20824761202",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/4f8e3ac9-d8ec-4d0b-a8e9-50a913771133.500414ebabc7e15bce8eb12560a0c499.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 1.68
+                      },
+                      "tax": {
+                        "taxName": "Tax1",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.08
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax1",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.08
+                        }
+                      }
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": {
+                        "taxName": "Tax2",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.3
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax2",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.3
+                        }
+                      }
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1790456230000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1790090843000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1790622000000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129126495510821",
+          "customerOrderId": "200015191581877",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1789865227053,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1790622000000,
+            "estimatedShipDate": 1790132400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Akron",
+              "state": "OH",
+              "postalCode": "44305",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Campbell's Condensed Beef Consomme Soup, 10.5 oz Can",
+                  "sku": "Sty-20824761202",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/4f8e3ac9-d8ec-4d0b-a8e9-50a913771133.500414ebabc7e15bce8eb12560a0c499.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 3.36
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 11.96
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "2"
+                },
+                "statusDate": 1790335216000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "2"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1790090828000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1790622000000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129126394867222",
+          "customerOrderId": "200015551536931",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1789855553383,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1790622000000,
+            "estimatedShipDate": 1790132400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Garden City",
+              "state": "ID",
+              "postalCode": "83714",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Campbell's Condensed Beef Consomme Soup, 10.5 oz Can",
+                  "sku": "Sty-20824761202",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/4f8e3ac9-d8ec-4d0b-a8e9-50a913771133.500414ebabc7e15bce8eb12560a0c499.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 1.68
+                      },
+                      "tax": {
+                        "taxName": "Tax1",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.1
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax1",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.1
+                        }
+                      }
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1790609694000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1790090807000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1790632740000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129126394102465",
+          "customerOrderId": "200015678906073",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1789845756420,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1790622000000,
+            "estimatedShipDate": 1790132400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Sahuarita",
+              "state": "AZ",
+              "postalCode": "85629",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Campbell's Condensed Beef Consomme Soup, 10.5 oz Can",
+                  "sku": "Sty-20824761202",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/4f8e3ac9-d8ec-4d0b-a8e9-50a913771133.500414ebabc7e15bce8eb12560a0c499.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.04
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 17.94
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "3"
+                },
+                "statusDate": 1790353420000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "3"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1790090780000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1790632740000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129126393825278",
+          "customerOrderId": "200015516602665",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1789842986105,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1790622000000,
+            "estimatedShipDate": 1790132400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Chipley",
+              "state": "FL",
+              "postalCode": "32428",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Campbell's Condensed Beef Consomme Soup, 10.5 oz Can",
+                  "sku": "Sty-20824761202",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/4f8e3ac9-d8ec-4d0b-a8e9-50a913771133.500414ebabc7e15bce8eb12560a0c499.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 1.68
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1790333433000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1790090741000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1790632740000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        }
+      ]
+    }
+  },
+  "_fixture_note": "This page genuinely returned 200 real orders (meta.limit=200, meta.totalCount=587 unchanged below, reflecting the real account). To keep this fixture file a reasonable size, only the first 5 orders of the 200 are kept here; meta (including the real nextCursor, redacted only for the store's own partnerId/sellerId) is untouched and real."
+}

@@ -1,0 +1,130 @@
+{
+  "purchaseOrderId": "129124923831945",
+  "customerOrderId": "200015181491723",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1788648657611,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1789412400000,
+    "estimatedShipDate": 1788922800000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Slidell",
+      "state": "LA",
+      "postalCode": "70461",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "Campbell’s Condensed Heart Healthy Chicken Noodle Soup, 10.75 oz Can",
+          "sku": "Ap-00612461403322",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/asr/08c5b4cd-7589-4d01-ae7a-22bbd2b9bab2.fd57ca5d4281c5417c3d65611187c051.jpeg",
+          "weight": {
+            "value": "10.75",
+            "unit": "oz"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 2.98
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 11.96
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "2"
+        },
+        "statusDate": 1789389218000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Delivered",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "2"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1788885462000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": {
+          "refundId": null,
+          "refundComments": null,
+          "refundCharges": {
+            "refundCharge": [
+              {
+                "refundReason": "Others",
+                "charge": {
+                  "chargeType": "SHIPPING",
+                  "chargeName": "ShippingNoThreshold",
+                  "chargeAmount": {
+                    "currency": "USD",
+                    "amount": -11.96
+                  },
+                  "tax": null,
+                  "taxAndOtherFees": null
+                }
+              }
+            ]
+          }
+        },
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1789412400000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

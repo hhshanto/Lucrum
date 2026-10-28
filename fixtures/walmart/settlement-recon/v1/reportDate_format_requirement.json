@@ -1,0 +1,19 @@
+{
+  "_fixture_note": "reportDate must be passed back EXACTLY as returned by availableReconFiles (a bare MMDDYYYY string, no separators). Every other plausible format is rejected with the SAME error as 'no report exists for this date' (NO_REPORT_AVAILABLE_FOR_GIVEN_DATE), which is misleading: the report exists, the date string shape is simply wrong. Confirmed empirically against the live API.",
+  "accepted_format_example": "10202026",
+  "rejected_formats_tried": [
+    "10-20-2026",
+    "2026-10-20",
+    "10/20/2026"
+  ],
+  "rejected_response_body": {
+    "errors": [
+      {
+        "code": "NO_REPORT_AVAILABLE_FOR_GIVEN_DATE",
+        "description": "Report not available for given date. Please use the availableReconFiles API to get the dates for which report is available",
+        "severity": "ERROR",
+        "category": "DATA"
+      }
+    ]
+  }
+}

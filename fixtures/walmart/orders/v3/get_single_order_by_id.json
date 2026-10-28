@@ -1,0 +1,145 @@
+{
+  "order": {
+    "purchaseOrderId": "129123682349583",
+    "customerOrderId": "200014936852105",
+    "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+    "orderType": "REGULAR",
+    "orderDate": 1787526510851,
+    "shippingInfo": {
+      "phone": "<redacted-phone>",
+      "estimatedDeliveryDate": 1788202800000,
+      "estimatedShipDate": 1787713200000,
+      "methodCode": "Standard",
+      "postalAddress": {
+        "name": "<redacted-customer-name>",
+        "address1": "<redacted-street-address>",
+        "address2": "<redacted-street-address>",
+        "city": "Elkhart",
+        "state": "IN",
+        "postalCode": "46516",
+        "country": "USA",
+        "addressType": "RESIDENTIAL"
+      },
+      "carrierMethodName": null
+    },
+    "orderLines": {
+      "orderLine": [
+        {
+          "lineNumber": "1",
+          "item": {
+            "productName": "Sliced Dried Beef, Jarred Meat, 2.25 oz.",
+            "sku": "Ap-17699066821",
+            "condition": "New",
+            "imageUrl": "https://i5.walmartimages.com/asr/2fef2c47-68ad-4f6d-ad5f-dd2c16b0fa11.4a060e5a67e5bbcf30c31b2ac09d13f2.jpeg",
+            "weight": {
+              "value": "2.25",
+              "unit": "Ounces"
+            }
+          },
+          "shipWithWalmartCrossBorderEnrolled": false,
+          "charges": {
+            "charge": [
+              {
+                "chargeType": "PRODUCT",
+                "chargeName": "ItemPrice",
+                "chargeAmount": {
+                  "currency": "USD",
+                  "amount": 4.5
+                },
+                "tax": null,
+                "taxAndOtherFees": null
+              },
+              {
+                "chargeType": "SHIPPING",
+                "chargeName": "Shipping",
+                "chargeAmount": {
+                  "currency": "USD",
+                  "amount": 5.98
+                },
+                "tax": null,
+                "taxAndOtherFees": null
+              }
+            ]
+          },
+          "orderLineQuantity": {
+            "unitOfMeasurement": "EACH",
+            "amount": "1"
+          },
+          "statusDate": 1790167558000,
+          "orderLineStatuses": {
+            "orderLineStatus": [
+              {
+                "status": "Delivered",
+                "subSellerId": null,
+                "statusQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "cancellationReason": null,
+                "trackingInfo": {
+                  "shipDateTime": 1787679077000,
+                  "carrierName": {
+                    "otherCarrier": null,
+                    "carrier": "USPS"
+                  },
+                  "methodCode": "Standard",
+                  "carrierMethodCode": null,
+                  "trackingNumber": "<redacted-tracking-number>",
+                  "trackingURL": "<redacted-tracking-url>"
+                },
+                "returnCenterAddress": null
+              }
+            ]
+          },
+          "refund": {
+            "refundId": null,
+            "refundComments": null,
+            "refundCharges": {
+              "refundCharge": [
+                {
+                  "refundReason": "Others",
+                  "charge": {
+                    "chargeType": "PRODUCT",
+                    "chargeName": "Product",
+                    "chargeAmount": {
+                      "currency": "USD",
+                      "amount": -4.5
+                    },
+                    "tax": null,
+                    "taxAndOtherFees": null
+                  }
+                },
+                {
+                  "refundReason": "Others",
+                  "charge": {
+                    "chargeType": "SHIPPING",
+                    "chargeName": "ShippingNoThreshold",
+                    "chargeAmount": {
+                      "currency": "USD",
+                      "amount": -5.97
+                    },
+                    "tax": null,
+                    "taxAndOtherFees": null
+                  }
+                }
+              ]
+            }
+          },
+          "fulfillment": {
+            "fulfillmentOption": "DELIVERY",
+            "shipMethod": "STANDARD",
+            "storeId": null,
+            "pickUpDateTime": 1788202800000,
+            "pickUpBy": null,
+            "shippingProgramType": "THREE_TO_FIVE_DAY"
+          }
+        }
+      ]
+    },
+    "shipNode": {
+      "type": "SellerFulfilled",
+      "name": "<redacted-store-name>",
+      "id": "<redacted-store-identifier>"
+    }
+  }
+}

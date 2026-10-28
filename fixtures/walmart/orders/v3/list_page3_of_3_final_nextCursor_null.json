@@ -1,0 +1,600 @@
+{
+  "list": {
+    "meta": {
+      "totalCount": 587,
+      "limit": 200,
+      "nextCursor": null
+    },
+    "elements": {
+      "order": [
+        {
+          "purchaseOrderId": "119124029427982",
+          "customerOrderId": "200015058692546",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1787840354133,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1788462000000,
+            "estimatedShipDate": 1787972400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Savage",
+              "state": "MN",
+              "postalCode": "55378",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Libby's Sliced Beets, Canned Vegetables, 15 oz",
+                  "sku": "Ap-18254251314",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/5ba39d21-2ce0-4e95-97f2-ae2a725788fb.c5fcff112151fd3e419ee91857f068f8.png",
+                  "weight": {
+                    "value": "15",
+                    "unit": "oz"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 0.88
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1788261747000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1787938118000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1788462000000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "119124028941090",
+          "customerOrderId": "200015517806662",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1787833458773,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1788462000000,
+            "estimatedShipDate": 1787972400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": "<redacted-street-address>",
+              "city": "Spring",
+              "state": "TX",
+              "postalCode": "77379",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Chunky Soup, Ready to Serve New England Clam Chowder, 18.8 oz Can",
+                  "sku": "Ap-19637015708",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/c1b63586-5e07-4e1e-9fd5-64bc561f64ea.c3043c0c22c4d6b041d81d98959bada5.jpeg",
+                  "weight": {
+                    "value": "18.8",
+                    "unit": "oz"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 2.0
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1788364164000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1787938099000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1788462000000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "119124027447807",
+          "customerOrderId": "200015305408597",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1787801869254,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1788375600000,
+            "estimatedShipDate": 1787886000000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Saint Louis",
+              "state": "MO",
+              "postalCode": "63129",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Chunky Soup, Ready to Serve New England Clam Chowder, 18.8 oz Can",
+                  "sku": "Ap-19637015708",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/c1b63586-5e07-4e1e-9fd5-64bc561f64ea.c3043c0c22c4d6b041d81d98959bada5.jpeg",
+                  "weight": {
+                    "value": "18.8",
+                    "unit": "oz"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 6.0
+                      },
+                      "tax": {
+                        "taxName": "Tax1",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.07
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax1",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.07
+                        }
+                      }
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 17.94
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "3"
+                },
+                "statusDate": 1787845854000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "3"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1787845854000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1788375600000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "119124027207558",
+          "customerOrderId": "200015064134202",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1787789651175,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1788375600000,
+            "estimatedShipDate": 1787886000000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Old Bridge",
+              "state": "NJ",
+              "postalCode": "08857",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Ocean Spray® Gluten-Free Jellied Cranberry Sauce, Canned Side Dish, 14 oz Can.",
+                  "sku": "Ap-20569862487",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/cc836142-7c68-4e2c-9ead-7f1daa62737c.1634d1a86186318f53d991e9bbf90199.jpeg",
+                  "weight": {
+                    "value": "14",
+                    "unit": "oz"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 1.47
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1788176695000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1787845838000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1788375600000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "119123926622851",
+          "customerOrderId": "200015070528128",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1787780602166,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1788375600000,
+            "estimatedShipDate": 1787886000000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Hohenwald",
+              "state": "TN",
+              "postalCode": "38462",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Chunky Soup, Ready to Serve New England Clam Chowder, 18.8 oz Can",
+                  "sku": "Ap-19637015708",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/asr/c1b63586-5e07-4e1e-9fd5-64bc561f64ea.c3043c0c22c4d6b041d81d98959bada5.jpeg",
+                  "weight": {
+                    "value": "18.8",
+                    "unit": "oz"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 4.0
+                      },
+                      "tax": {
+                        "taxName": "Tax1",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.27
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax1",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.27
+                        }
+                      }
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 11.96
+                      },
+                      "tax": {
+                        "taxName": "Tax2",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.81
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax2",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.81
+                        }
+                      }
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "2"
+                },
+                "statusDate": 1788181887000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Delivered",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "2"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1787845824000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1788375600000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        }
+      ]
+    }
+  },
+  "_fixture_note": "This page genuinely returned 187 real orders (meta.limit=200, meta.totalCount=587 unchanged below, reflecting the real account). To keep this fixture file a reasonable size, only the first 5 orders of the 187 are kept here; meta (including the real nextCursor, redacted only for the store's own partnerId/sellerId) is untouched and real."
+}

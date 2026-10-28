@@ -1,0 +1,12 @@
+{
+  "list": {
+    "meta": {
+      "totalCount": 0,
+      "limit": 0,
+      "nextCursor": null
+    },
+    "elements": {
+      "order": []
+    }
+  }
+}

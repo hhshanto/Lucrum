@@ -1,0 +1,145 @@
+{
+  "purchaseOrderId": "129120019729683",
+  "customerOrderId": "200015000091249",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1784400094825,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1785000600000,
+    "estimatedShipDate": 1784667600000,
+    "methodCode": "Value",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Easley",
+      "state": "SC",
+      "postalCode": "29640",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": "USPS_GROUND"
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "Fuggler Hairy Fuggs 9-inch S1 (Sir Belch - Hairy Tongue - Red) by ZURU - Ugly Monster Plush Toy for Ages 4+",
+          "sku": "REDACTEDSTOREBRAND110",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/Fuggler-Hairy-Fuggs-9-inch-Sir-Belch-Hairy-Tongue-Plush-Ugly-Monster-Stuffed-Animal-Toy-by-ZURU_69ea0b51-dabc-4baa-a274-df99ef817e51.15fd0c0cffde048ee31ff2321e2e6431.jpeg",
+          "weight": {
+            "value": "0.5",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 25.69
+              },
+              "tax": {
+                "taxName": "Tax1",
+                "taxAmount": {
+                  "currency": "USD",
+                  "amount": 1.8
+                }
+              },
+              "taxAndOtherFees": {
+                "taxAndOtherFeesName": "Tax1",
+                "taxAndOtherFeesAmount": {
+                  "currency": "USD",
+                  "amount": 1.8
+                }
+              }
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "1"
+        },
+        "statusDate": 1784745662000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Shipped",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "1"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1784745662000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Value",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": {
+          "refundId": null,
+          "refundComments": null,
+          "refundCharges": {
+            "refundCharge": [
+              {
+                "refundReason": "Others",
+                "charge": {
+                  "chargeType": "PRODUCT",
+                  "chargeName": "Product",
+                  "chargeAmount": {
+                    "currency": "USD",
+                    "amount": -25.44
+                  },
+                  "tax": {
+                    "taxName": "120d64b7-a390-4a89-9203-62d9ec4580a2",
+                    "taxAmount": {
+                      "currency": "USD",
+                      "amount": -1.78
+                    }
+                  },
+                  "taxAndOtherFees": {
+                    "taxAndOtherFeesName": "120d64b7-a390-4a89-9203-62d9ec4580a2",
+                    "taxAndOtherFeesAmount": {
+                      "currency": "USD",
+                      "amount": -1.78
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "originalCarrierMethod": "34578",
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "VALUE",
+          "storeId": null,
+          "pickUpDateTime": 1785000600000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

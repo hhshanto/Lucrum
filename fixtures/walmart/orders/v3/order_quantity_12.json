@@ -1,0 +1,110 @@
+{
+  "purchaseOrderId": "129127039571269",
+  "customerOrderId": "200015156546634",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1790456116634,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1791313200000,
+    "estimatedShipDate": 1790737200000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Murphys",
+      "state": "CA",
+      "postalCode": "95247",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "Maruchan Instant Lunch Ramen Noodles, Hot & Spicy Beef Flavor, 2.25 oz Cup",
+          "sku": "WA-634707765599",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/Maruchan-Instant-Lunch-Ramen-Noodles-Hot-Spicy-Beef-Flavor-2-25-oz-Cup_e6471e10-e23e-416d-a6c6-c6b412d29a81.08488c1cdadb13734ead7d6603b5bbd9.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 7.08
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 41.4
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "12"
+        },
+        "statusDate": 1791477310000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Delivered",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "12"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1790599219000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": null,
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1791313200000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

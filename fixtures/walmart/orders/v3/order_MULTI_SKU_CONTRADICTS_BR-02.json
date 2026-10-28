@@ -1,0 +1,187 @@
+{
+  "purchaseOrderId": "129129387286447",
+  "customerOrderId": "200015418579221",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1792444523904,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1793127600000,
+    "estimatedShipDate": 1792551600000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Albert Lea",
+      "state": "MN",
+      "postalCode": "56007",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "HORMEL MARY KITCHEN Breakfast Sausage Hash, Shelf-Stable, 14 oz Steel Can",
+          "sku": "SWT-634707876004",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/HORMEL-MARY-KITCHEN-Breakfast-Sausage-Hash-Shelf-Stable-14-oz-Steel-Can_a0b2f05c-b5c6-4cf5-b6f8-a1c5cdea5142.6a64d85df40e6298157590a5877eb140.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 3.69
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 5.98
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "1"
+        },
+        "statusDate": 1793013848000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Delivered",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "1"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1792512571000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": null,
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1793138340000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      },
+      {
+        "lineNumber": "2",
+        "item": {
+          "productName": "MARY KITCHEN Corned Beef Hash, Canned Corned Beef, Shelf-Stable, 14 oz Steel Can",
+          "sku": "SWT-634707895852",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/MARY-KITCHEN-Corned-Beef-Hash-Canned-Corned-Beef-Shelf-Stable-14-oz-Steel-Can_546ae169-b9b6-4cbf-9c93-e87a69d6721a.633968a4fad01e2f3d072159c7b4d3a1.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 3.89
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 5.98
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "1"
+        },
+        "statusDate": 1793013848000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Delivered",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "1"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1792512571000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": null,
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1793138340000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

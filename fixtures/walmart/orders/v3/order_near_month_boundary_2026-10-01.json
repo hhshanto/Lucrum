@@ -1,0 +1,110 @@
+{
+  "purchaseOrderId": "129127562985450",
+  "customerOrderId": "200015179980018",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1790815311303,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1791486000000,
+    "estimatedShipDate": 1790996400000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Rock",
+      "state": "MI",
+      "postalCode": "49880",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "Chef Boyardee Mini Beef Ravioli in Tomato Sauce, Microwave Pasta, 1 Pack, 15 oz",
+          "sku": "Sty-15624861392",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/Mini-Beef-Ravioli-in-Tomato-Sauce-Microwave-Pasta-4-Pack-15-oz_af007963-bdbc-440f-b080-88b45c60b690.76a5b3aa469db39af1114473088aa9bf.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 1.76
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 11.96
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "2"
+        },
+        "statusDate": 1790959932000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Shipped",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "2"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1790959932000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": null,
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1791496740000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

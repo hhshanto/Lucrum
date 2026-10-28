@@ -1,0 +1,109 @@
+{
+  "purchaseOrderId": "129129068393562",
+  "customerOrderId": "200015588868781",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1792186692774,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1793041200000,
+    "estimatedShipDate": 1792465200000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": "<redacted-street-address>",
+      "city": "Saint Louis",
+      "state": "MO",
+      "postalCode": "63109",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "\"JIFFY\" Honey Corn Muffin Mix, 8.5 oz Box",
+          "sku": "ZAR-634707981616",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/JIFFY-Honey-Corn-Muffin-Mix-8-5-oz-Box_5e7999f3-e06d-42e9-ab35-fb826bfd5fb6.ff6c71256ea946e6220318e05634cff6.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 1.58
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 11.96
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "2"
+        },
+        "statusDate": 1792197515416,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Cancelled",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "2"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": null
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingURL": null
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": null,
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1793051940000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        },
+        "intentToCancel": "TRUE"
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

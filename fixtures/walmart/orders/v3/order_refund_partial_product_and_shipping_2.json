@@ -1,0 +1,143 @@
+{
+  "purchaseOrderId": "119121629137248",
+  "customerOrderId": "200015090019617",
+  "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+  "orderType": "REGULAR",
+  "orderDate": 1785778089382,
+  "shippingInfo": {
+    "phone": "<redacted-phone>",
+    "estimatedDeliveryDate": 1786561200000,
+    "estimatedShipDate": 1786071600000,
+    "methodCode": "Standard",
+    "postalAddress": {
+      "name": "<redacted-customer-name>",
+      "address1": "<redacted-street-address>",
+      "address2": null,
+      "city": "Billings",
+      "state": "MT",
+      "postalCode": "59106",
+      "country": "USA",
+      "addressType": "RESIDENTIAL"
+    },
+    "carrierMethodName": null
+  },
+  "orderLines": {
+    "orderLine": [
+      {
+        "lineNumber": "1",
+        "item": {
+          "productName": "Premium Wood Mixing Bowl, Compatible with 4.5 & 5 QT KitchenAid Tilt-Head Stand Mixer. Natural Wooden Bowls, Kitchenaid Mixer Bowl with Stainless Steel Locking Base.4.5-5 Qt,Kitchen Gift Idea",
+          "sku": "REDACTEDSTOREBRAND105",
+          "condition": "New",
+          "imageUrl": "https://i5.walmartimages.com/seo/Premium-Wood-Mixing-Bowl-Compatible-4-5-5-QT-KitchenAid-Tilt-Head-Stand-Mixer-Natural-Wooden-Bowls-Kitchenaid-Mixer-Bowl-Stainless-Steel-Locking-Base_5413fa39-723b-48b0-a3af-85891faa3cb6.8655f1bf46fb3a8c367769490b2368f8.jpeg",
+          "weight": {
+            "value": "1",
+            "unit": "LB"
+          }
+        },
+        "shipWithWalmartCrossBorderEnrolled": false,
+        "charges": {
+          "charge": [
+            {
+              "chargeType": "PRODUCT",
+              "chargeName": "ItemPrice",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 79.69
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            },
+            {
+              "chargeType": "SHIPPING",
+              "chargeName": "Shipping",
+              "chargeAmount": {
+                "currency": "USD",
+                "amount": 9.88
+              },
+              "tax": null,
+              "taxAndOtherFees": null
+            }
+          ]
+        },
+        "orderLineQuantity": {
+          "unitOfMeasurement": "EACH",
+          "amount": "1"
+        },
+        "statusDate": 1786367884000,
+        "orderLineStatuses": {
+          "orderLineStatus": [
+            {
+              "status": "Delivered",
+              "subSellerId": null,
+              "statusQuantity": {
+                "unitOfMeasurement": "EACH",
+                "amount": "1"
+              },
+              "cancellationReason": null,
+              "trackingInfo": {
+                "shipDateTime": 1785871481000,
+                "carrierName": {
+                  "otherCarrier": null,
+                  "carrier": "USPS"
+                },
+                "methodCode": "Standard",
+                "carrierMethodCode": null,
+                "trackingNumber": "<redacted-tracking-number>",
+                "trackingURL": "<redacted-tracking-url>"
+              },
+              "returnCenterAddress": null
+            }
+          ]
+        },
+        "refund": {
+          "refundId": null,
+          "refundComments": null,
+          "refundCharges": {
+            "refundCharge": [
+              {
+                "refundReason": "Others",
+                "charge": {
+                  "chargeType": "PRODUCT",
+                  "chargeName": "Product",
+                  "chargeAmount": {
+                    "currency": "USD",
+                    "amount": -79.18
+                  },
+                  "tax": null,
+                  "taxAndOtherFees": null
+                }
+              },
+              {
+                "refundReason": "Others",
+                "charge": {
+                  "chargeType": "SHIPPING",
+                  "chargeName": "ShippingNoThreshold",
+                  "chargeAmount": {
+                    "currency": "USD",
+                    "amount": -9.82
+                  },
+                  "tax": null,
+                  "taxAndOtherFees": null
+                }
+              }
+            ]
+          }
+        },
+        "fulfillment": {
+          "fulfillmentOption": "DELIVERY",
+          "shipMethod": "STANDARD",
+          "storeId": null,
+          "pickUpDateTime": 1786561200000,
+          "pickUpBy": null,
+          "shippingProgramType": "THREE_TO_FIVE_DAY"
+        }
+      }
+    ]
+  },
+  "shipNode": {
+    "type": "SellerFulfilled",
+    "name": "<redacted-store-name>",
+    "id": "<redacted-store-identifier>"
+  }
+}

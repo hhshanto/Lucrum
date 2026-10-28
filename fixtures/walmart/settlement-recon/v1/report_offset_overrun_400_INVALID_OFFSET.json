@@ -1,0 +1,14 @@
+{
+  "_fixture_note": "Requesting offset=325 (== totalRecords of an already-fully-consumed report) does NOT return an empty 200 page. It returns 400 INVALID_OFFSET. The correct end-of-data signal is nextOffset == -1 returned on the PRIOR page, not a trailing empty page. A naive pager that keeps requesting offset=nextOffset until it gets zero rows will instead get an HTTP error.",
+  "http_status": 400,
+  "response_body": {
+    "errors": [
+      {
+        "code": "INVALID_OFFSET",
+        "description": "Offset is invalid",
+        "severity": "ERROR",
+        "category": "DATA"
+      }
+    ]
+  }
+}

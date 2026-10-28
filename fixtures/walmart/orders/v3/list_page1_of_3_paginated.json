@@ -1,0 +1,576 @@
+{
+  "list": {
+    "meta": {
+      "totalCount": 587,
+      "limit": 200,
+      "nextCursor": "?limit=200&hasMoreElements=true&soIndex=587&cursor=QW9Kd3A4M0MzNkFETHpFeU9URXlOalE1TnpJMk9ERTJOUT09&poIndex=200&partnerId=<redacted-store-identifier>&sellerId=<redacted-store-identifier>&createdStartDate=2026-05-01T09:18:32.421Z&createdEndDate=2026-10-28T09:18:32.421Z&productInfo=true&shipNodeType=SellerFulfilled&replacementInfo=true"
+    },
+    "elements": {
+      "order": [
+        {
+          "purchaseOrderId": "129130034484178",
+          "customerOrderId": "200015422159272",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1792992997699,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1793736000000,
+            "estimatedShipDate": 1793156400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Perryville",
+              "state": "MO",
+              "postalCode": "63775",
+              "country": "USA",
+              "addressType": "OFFICE"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Sliced Dried Beef, Jarred Meat, 2.25 oz.",
+                  "sku": "Ap-17699066821",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/seo/Sliced-Dried-Beef-Jarred-Meat-2-25-oz_2fef2c47-68ad-4f6d-ad5f-dd2c16b0fa11.4a060e5a67e5bbcf30c31b2ac09d13f2.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 18.0
+                      },
+                      "tax": {
+                        "taxName": "Tax1",
+                        "taxAmount": {
+                          "currency": "USD",
+                          "amount": 0.99
+                        }
+                      },
+                      "taxAndOtherFees": {
+                        "taxAndOtherFeesName": "Tax1",
+                        "taxAndOtherFeesAmount": {
+                          "currency": "USD",
+                          "amount": 0.99
+                        }
+                      }
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 23.92
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "4"
+                },
+                "statusDate": 1793146164000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "4"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1793146164000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1793397540000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129130033955029",
+          "customerOrderId": "200015576368283",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1792985159599,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1793736000000,
+            "estimatedShipDate": 1793156400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": "<redacted-street-address>",
+              "city": "Jacksonville",
+              "state": "FL",
+              "postalCode": "32256",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "\"JIFFY\" Honey Corn Muffin Mix, 8.5 oz Box",
+                  "sku": "ZAR-634707981616",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/seo/JIFFY-Honey-Corn-Muffin-Mix-8-5-oz-Box_5e7999f3-e06d-42e9-ab35-fb826bfd5fb6.ff6c71256ea946e6220318e05634cff6.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 0.79
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1793146161000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1793146161000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1793746740000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129130033534387",
+          "customerOrderId": "200015764901904",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1792980902629,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1793736000000,
+            "estimatedShipDate": 1793156400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Lawrence Township",
+              "state": "NJ",
+              "postalCode": "08648",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "Hungry Jack Hashbrown Potatoes, 4.2 oz pint carton",
+                  "sku": "ZAR-634707674488",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/seo/Hungry-Jack-Hashbrown-Potatoes-4-2-oz-pint-carton_1560893a-f273-44e3-b218-d9ca3e857250.12d65d20343f088e1757b849e014b1ff.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 1.49
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1793146158000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1793146158000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1793746740000,
+                  "pickUpBy": null,
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129130033245935",
+          "customerOrderId": "200015492334743",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1792978079562,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1793736000000,
+            "estimatedShipDate": 1793156400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Brownfield",
+              "state": "ME",
+              "postalCode": "04010",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "HORMEL MARY KITCHEN Breakfast Sausage Hash, Shelf-Stable, 14 oz Steel Can",
+                  "sku": "SWT-634707876004",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/seo/HORMEL-MARY-KITCHEN-Breakfast-Sausage-Hash-Shelf-Stable-14-oz-Steel-Can_a0b2f05c-b5c6-4cf5-b6f8-a1c5cdea5142.6a64d85df40e6298157590a5877eb140.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 7.38
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 11.96
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "2"
+                },
+                "statusDate": 1793146155000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "2"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1793146155000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1793746740000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        },
+        {
+          "purchaseOrderId": "129130033073469",
+          "customerOrderId": "200015235758450",
+          "customerEmailId": "<redacted: was a @relay.walmart.com masked address>",
+          "orderType": "REGULAR",
+          "orderDate": 1792974478185,
+          "shippingInfo": {
+            "phone": "<redacted-phone>",
+            "estimatedDeliveryDate": 1793736000000,
+            "estimatedShipDate": 1793156400000,
+            "methodCode": "Standard",
+            "postalAddress": {
+              "name": "<redacted-customer-name>",
+              "address1": "<redacted-street-address>",
+              "address2": null,
+              "city": "Katy",
+              "state": "TX",
+              "postalCode": "77450",
+              "country": "USA",
+              "addressType": "RESIDENTIAL"
+            },
+            "carrierMethodName": null
+          },
+          "orderLines": {
+            "orderLine": [
+              {
+                "lineNumber": "1",
+                "item": {
+                  "productName": "\"JIFFY\" Honey Corn Muffin Mix, 8.5 oz Box",
+                  "sku": "ZAR-634707981616",
+                  "condition": "New",
+                  "imageUrl": "https://i5.walmartimages.com/seo/JIFFY-Honey-Corn-Muffin-Mix-8-5-oz-Box_5e7999f3-e06d-42e9-ab35-fb826bfd5fb6.ff6c71256ea946e6220318e05634cff6.jpeg",
+                  "weight": {
+                    "value": "1",
+                    "unit": "LB"
+                  }
+                },
+                "shipWithWalmartCrossBorderEnrolled": false,
+                "charges": {
+                  "charge": [
+                    {
+                      "chargeType": "PRODUCT",
+                      "chargeName": "ItemPrice",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 0.79
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    },
+                    {
+                      "chargeType": "SHIPPING",
+                      "chargeName": "Shipping",
+                      "chargeAmount": {
+                        "currency": "USD",
+                        "amount": 5.98
+                      },
+                      "tax": null,
+                      "taxAndOtherFees": null
+                    }
+                  ]
+                },
+                "orderLineQuantity": {
+                  "unitOfMeasurement": "EACH",
+                  "amount": "1"
+                },
+                "statusDate": 1793146153000,
+                "orderLineStatuses": {
+                  "orderLineStatus": [
+                    {
+                      "status": "Shipped",
+                      "subSellerId": null,
+                      "statusQuantity": {
+                        "unitOfMeasurement": "EACH",
+                        "amount": "1"
+                      },
+                      "cancellationReason": null,
+                      "trackingInfo": {
+                        "shipDateTime": 1793146152000,
+                        "carrierName": {
+                          "otherCarrier": null,
+                          "carrier": "USPS"
+                        },
+                        "methodCode": "Standard",
+                        "carrierMethodCode": null,
+                        "trackingNumber": "<redacted-tracking-number>",
+                        "trackingURL": "<redacted-tracking-url>"
+                      },
+                      "returnCenterAddress": null
+                    }
+                  ]
+                },
+                "refund": null,
+                "fulfillment": {
+                  "fulfillmentOption": "DELIVERY",
+                  "shipMethod": "STANDARD",
+                  "storeId": null,
+                  "pickUpDateTime": 1793746740000,
+                  "pickUpBy": "<redacted-customer-name>",
+                  "shippingProgramType": "THREE_TO_FIVE_DAY"
+                }
+              }
+            ]
+          },
+          "shipNode": {
+            "type": "SellerFulfilled",
+            "name": "<redacted-store-name>",
+            "id": "<redacted-store-identifier>"
+          }
+        }
+      ]
+    }
+  },
+  "_fixture_note": "This page genuinely returned 200 real orders (meta.limit=200, meta.totalCount=587 unchanged below, reflecting the real account). To keep this fixture file a reasonable size, only the first 5 orders of the 200 are kept here; meta (including the real nextCursor, redacted only for the store's own partnerId/sellerId) is untouched and real."
+}
