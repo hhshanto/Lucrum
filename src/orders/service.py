@@ -50,6 +50,73 @@ is ever provisioned in this story
 (``database-schema.md:323``: "An order whose date falls outside any
 provisioned month for its store is retained with
 posting_status_code = unpostable_no_period").
+
+-------------------------------------------------------------------------
+US-005b-1 -- import run visibility, backend half (AC-03 of US-005, split by
+the Owner into a backend half and a screen half, PROGRESS.md 2026-10-28).
+Every call to ``import_orders`` now also opens an ``import_batches`` row,
+classifies the outcome, records any rejection in ``import_errors``, and
+closes the batch -- all inside the SAME transaction as the orders it
+writes, so a concurrency-backstop rollback (an operation_id race) discards
+the batch bookkeeping along with everything else, exactly as it already
+discarded order upserts before this story.
+
+**B-18 (Owner ruling, PROGRESS.md 2026-10-28): a multi-SKU order is
+rejected WHOLE.** Two items in one request sharing a ``walmart_order_id``
+with different ``sku`` values is detected here in Python, from the
+request's own payload -- it needs no database round trip, because BR-02's
+violation is visible from the submitted batch alone. Neither line is
+written to ``orders``; a single ``import_errors`` row names the order.
+Every OTHER, unrelated order in the same batch still commits -- rejection
+is scoped to the conflicting order, never to the whole batch (the Owner's
+ruling named the order, not the batch).
+
+**B-18.2 (the cross-batch case -- a LATER import whose sku disagrees with
+an already-stored row) is explicitly NOT handled here.** That is B-19, an
+undecided business question (PROGRESS.md) -- this module still applies the
+pre-existing ``sku = excluded.sku`` upsert behaviour for that case,
+unguarded, exactly as before this story. Only the WITHIN-one-request-batch
+case is detected.
+
+**Three invented conventions, each disclosed at its point of use because
+no document defines any of them (B-12's ``store_created`` precedent):**
+
+1. ``import_errors.error_code`` for a BR-02 rejection is
+   ``"MULTIPLE_SKUS_FOR_ORDER"`` (see ``_MULTI_SKU_ERROR_CODE`` below) --
+   no catalogue of import error codes exists anywhere in the specification.
+2. The HTTP status for "every order in this batch was rejected" is 422
+   (``WholeBatchImportRejected``'s handler, ``src/main.py``) -- analogous
+   to this file's own existing, equally-unpinned 409/404 choices.
+3. **Granularity of ``import_batches`` counts and ``import_errors`` rows is
+   this story's own reasoned judgment, not a spec reading**: both are
+   counted per distinct ``walmart_order_id`` submitted ("order groups"),
+   not per raw request line. A single-item order counts as one row either
+   way; the two-line BR-02 conflict case is what makes the distinction
+   real -- it is counted and reported as ONE rejected order, not two
+   rejected lines, because B-18's ruling itself speaks in terms of orders.
+   This choice also makes ``row_count = success_count + error_count`` hold
+   as a readable invariant, which per-line counting mixed with per-order
+   rejection would not.
+
+**G-7's narrow transition rule is applied, read precisely**
+(PROGRESS.md: "a batch that raises before any row is written is failed").
+Read here as "before any ``orders`` row is written" -- not "before any
+write of any kind" -- because AC-03 itself requires the failure to be
+DURABLY RECORDED, which means the ``import_batches``/``import_errors``
+bookkeeping rows for a total failure are always committed, and only
+``orders`` stays untouched. ``WholeBatchImportRejected`` is raised AFTER
+the enclosing ``with conn.transaction():`` block has already exited
+cleanly (which issues a real ``COMMIT`` at this nesting level -- confirmed
+by reading ``psycopg/transaction.py`` directly rather than assumed), so the
+batch/error rows survive regardless of what the caller does with the
+exception afterward.
+
+A MIXED batch (one order succeeds, another in the same batch is rejected)
+is classified ``"partial"`` -- not mandated by any document (no
+failed-vs-partial transition rule exists for order-import batches; the
+only such rule in the specification governs settlement batches, a
+different table under a different policy, per spec-oracle's own G-7
+finding). Disclosed here as implementer judgment, not a spec reading.
 """
 
 from __future__ import annotations
@@ -73,6 +140,7 @@ __all__ = [
     "OrderImportItem",
     "StoreInactive",
     "StoreNotConfiguredForImport",
+    "WholeBatchImportRejected",
     "import_orders",
 ]
 
@@ -86,6 +154,11 @@ FULFILLMENT_STATUSES = frozenset(
 
 _EVENT_TYPE = "orders_imported"
 _ENTITY_TYPE = "order_import"
+_IMPORT_TYPE = "orders"
+
+# Invented, disclosed (module docstring, point 1): no catalogue of import
+# error codes exists anywhere in the specification.
+_MULTI_SKU_ERROR_CODE = "MULTIPLE_SKUS_FOR_ORDER"
 
 
 class StoreInactive(Exception):
@@ -112,6 +185,32 @@ class StoreNotConfiguredForImport(Exception):
         )
         self.store_id = store_id
         self.missing = missing
+
+
+class WholeBatchImportRejected(Exception):
+    """Every order submitted in this import batch was rejected (B-18): no
+    row was written to ``orders``. Raised AFTER the ``import_batches``/
+    ``import_errors``/audit bookkeeping for this run has already committed
+    -- see this module's own docstring for why that ordering is correct,
+    not accidental. ``errors`` carries one dict per rejected order
+    (``walmart_order_id``, ``error_code``, ``message``), the same shape
+    ``main.py``'s handler surfaces in the response body.
+    """
+
+    def __init__(
+        self,
+        *,
+        store_id: uuid.UUID,
+        batch_id: uuid.UUID,
+        errors: list[dict[str, Any]],
+    ) -> None:
+        super().__init__(
+            f"every order in import batch {batch_id} for store {store_id} "
+            "was rejected; nothing was written to orders"
+        )
+        self.store_id = store_id
+        self.batch_id = batch_id
+        self.errors = errors
 
 
 @dataclass(frozen=True)
@@ -173,6 +272,51 @@ def _order_summary(order_id: uuid.UUID, walmart_order_id: str, created: bool) ->
     }
 
 
+def _group_by_walmart_order_id(
+    orders: list[OrderImportItem],
+) -> dict[str, list[OrderImportItem]]:
+    """Group submitted lines by ``walmart_order_id``, preserving first-seen
+    order (plain ``dict`` insertion order, Python 3.7+). A group of more
+    than one item sharing different ``sku`` values is the WITHIN-batch
+    BR-02 conflict B-18 rejects whole -- detected here, from the request's
+    own payload, before any database write is attempted.
+    """
+    groups: dict[str, list[OrderImportItem]] = {}
+    for item in orders:
+        groups.setdefault(item.walmart_order_id, []).append(item)
+    return groups
+
+
+def _multi_sku_error(walmart_order_id: str, skus: list[str]) -> dict[str, Any]:
+    message = (
+        f"order {walmart_order_id!r} carries {len(skus)} distinct SKUs "
+        f"({', '.join(skus)}) within one import batch; BR-02 permits "
+        "exactly one SKU per order. Rejected whole -- neither line was "
+        "persisted (B-18, Owner ruling, PROGRESS.md 2026-10-28)."
+    )
+    return {
+        "walmart_order_id": walmart_order_id,
+        "error_code": _MULTI_SKU_ERROR_CODE,
+        "message": message,
+    }
+
+
+def _replay_import_outcome(
+    after_state: dict[str, Any], *, store_id: uuid.UUID
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Reconstruct the original call's outcome from a replayed audit event
+    (F-88 applied to this story's own write surface: a replayed FAILURE
+    must report the SAME failure, not silently succeed).
+    """
+    if after_state.get("outcome") == "failed":
+        raise WholeBatchImportRejected(
+            store_id=store_id,
+            batch_id=after_state.get("batch_id"),
+            errors=after_state.get("errors", []),
+        )
+    return after_state.get("orders", []), after_state.get("errors", []), True
+
+
 def _check_import_replay_target(
     existing_event: dict[str, Any], *, store_id: uuid.UUID
 ) -> None:
@@ -201,8 +345,15 @@ def import_orders(
     store_id: uuid.UUID,
     orders: list[OrderImportItem],
     operation_id: str,
-) -> tuple[list[dict[str, Any]], bool]:
-    """Upsert a batch of orders into one store. Returns ``(results, replayed)``.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Upsert a batch of orders into one store.
+
+    Returns ``(results, errors, replayed)``. ``errors`` is one dict per
+    rejected order (today, only the B-18 multi-SKU shape) -- empty when
+    every order in the batch was accepted. Raises
+    ``WholeBatchImportRejected`` instead of returning when EVERY order in
+    the batch was rejected (see this module's own docstring for why that is
+    the chosen total-failure boundary).
 
     AC-01: every field named by the criterion is persisted exactly as given
     (``repository.upsert_order``); ``selling_amount`` passes through
@@ -219,8 +370,10 @@ def import_orders(
     One audit event per call, not per order: a batch is one write, and
     ``audit_events.operation_id`` is unique, so there is nowhere for a
     second row under the same key to go. ``after_state`` carries every
-    order's id and created/updated outcome, which is also what a replay of
-    this ``operation_id`` returns instead of re-applying anything.
+    accepted order's id/outcome, every rejected order's error, the
+    import_batches row id, and the overall outcome label -- everything a
+    replay needs to reconstruct the ORIGINAL response (including a FAILED
+    one, via ``_replay_import_outcome``) rather than merely the orders.
     """
     store = stores_repository.get_store(conn, scope, store_id)
 
@@ -234,12 +387,44 @@ def import_orders(
     if existing_event is not None:
         _check_import_replay_target(existing_event, store_id=store_id)
         after = existing_event.get("after_state") or {}
-        return after.get("orders", []), True
+        return _replay_import_outcome(after, store_id=store_id)
+
+    groups = _group_by_walmart_order_id(orders)
 
     results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
     try:
         with conn.transaction():
-            for item in orders:
+            batch = repository.create_import_batch(
+                conn,
+                import_type=_IMPORT_TYPE,
+                store_id=store_id,
+                source_name=None,
+                status_code="processing",
+                imported_by=actor_id,
+                started_at=clock.utc_now(),
+            )
+
+            error_rows: list[dict[str, Any]] = []
+            for walmart_order_id, items in groups.items():
+                skus = sorted({item.sku for item in items})
+                if len(skus) > 1:
+                    # B-18: reject the whole order, visibly. Detected from
+                    # the submitted payload alone -- no database round trip
+                    # needed to know two lines in THIS batch disagree.
+                    errors.append(_multi_sku_error(walmart_order_id, skus))
+                    error_rows.append(
+                        {
+                            "external_reference": walmart_order_id,
+                            "raw_row": {
+                                "walmart_order_id": walmart_order_id,
+                                "skus": skus,
+                            },
+                        }
+                    )
+                    continue
+
+                item = items[0]
                 order_date = _resolve_order_date(store, item.order_placed_at_utc)
                 scope_status_code = _resolve_scope_status(store, order_date)
                 posting_status_code = _posting_status_for(scope_status_code)
@@ -265,6 +450,44 @@ def import_orders(
                 )
                 results.append(_order_summary(row["id"], row["walmart_order_id"], created))
 
+            # Granularity: one count/row per distinct walmart_order_id
+            # submitted ("order group"), not per raw request line -- this
+            # module's own docstring, point 3.
+            row_count = len(groups)
+            success_count = len(results)
+            error_count = len(errors)
+
+            if success_count == 0 and error_count > 0:
+                outcome = "failed"
+            elif error_count == 0:
+                outcome = "completed"
+            else:
+                # Disclosed implementer judgment (module docstring): no
+                # failed-vs-partial transition rule exists for order-import
+                # batches anywhere in the specification.
+                outcome = "partial"
+
+            repository.finish_import_batch(
+                conn,
+                batch_id=batch["id"],
+                status_code=outcome,
+                finished_at=clock.utc_now(),
+                row_count=row_count,
+                success_count=success_count,
+                error_count=error_count,
+            )
+
+            for error, error_row in zip(errors, error_rows):
+                repository.insert_import_error(
+                    conn,
+                    import_batch_id=batch["id"],
+                    row_number=None,
+                    external_reference=error_row["external_reference"],
+                    error_code=error["error_code"],
+                    error_message=error["message"],
+                    raw_row=error_row["raw_row"],
+                )
+
             audit.record(
                 conn,
                 audit.AuditEvent(
@@ -274,17 +497,42 @@ def import_orders(
                     store_id=store_id,
                     operation_id=operation_id,
                     actor_id=actor_id,
-                    after_state={"orders": results},
+                    after_state={
+                        "orders": results,
+                        "errors": errors,
+                        "batch_id": str(batch["id"]),
+                        "outcome": outcome,
+                    },
                 ),
             )
     except audit.DuplicateOperation as replay:
         # Concurrency backstop: a racer committed between the pre-check
-        # above and this call's own writes. Every upsert attempted above
-        # was rolled back along with the audit insert that detected the
-        # replay (module docstring convention established in
-        # stores.service.create_store).
+        # above and this call's own writes. Everything attempted above --
+        # the batch row, every upsert, every error row -- was rolled back
+        # along with the audit insert that detected the replay (module
+        # docstring convention established in stores.service.create_store).
         _check_import_replay_target(replay.existing_event, store_id=store_id)
         after = replay.existing_event.get("after_state") or {}
-        return after.get("orders", []), True
+        return _replay_import_outcome(after, store_id=store_id)
 
-    return results, False
+    if outcome == "failed":
+        # Force a real COMMIT here, explicitly -- confirmed empirically,
+        # not merely read in docs, that this is required: `stores_
+        # repository.get_store` above already ran a SELECT on this same
+        # `conn`, which (autocommit=False, the project default) opens an
+        # AMBIENT transaction before `with conn.transaction():` is ever
+        # entered. That makes the `with conn.transaction():` block above a
+        # NESTED savepoint, not the outermost transaction -- its clean exit
+        # only RELEASEs the savepoint, it does not COMMIT. Without this
+        # call, raising below propagates out through `with connection() as
+        # conn:` (src/main.py) to `psycopg.Connection.__exit__`, which
+        # rolls back the whole ambient transaction -- undoing the batch and
+        # error rows this function just told the caller were durably
+        # recorded. `conn.commit()` here ends that ambient transaction for
+        # real, before the exception is raised.
+        conn.commit()
+        raise WholeBatchImportRejected(
+            store_id=store_id, batch_id=batch["id"], errors=errors
+        )
+
+    return results, errors, False

@@ -261,6 +261,29 @@ async def store_inactive_handler(request: Request, exc: orders_service.StoreInac
     )
 
 
+@app.exception_handler(orders_service.WholeBatchImportRejected)
+async def whole_batch_import_rejected_handler(
+    request: Request, exc: orders_service.WholeBatchImportRejected
+):
+    # US-005b-1: every order in this import batch was rejected (B-18). The
+    # import_batches/import_errors bookkeeping for the failure has already
+    # committed (src/orders/service.py's own docstring explains why that
+    # ordering is safe) -- this only decides what the CALLER sees. 422 is
+    # this story's own disclosed choice, analogous to the 409/404 choices
+    # the handlers around it already make for their own unspecified codes.
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "code": "IMPORT_BATCH_REJECTED",
+            "errors": exc.errors,
+            "message": (
+                "Every order in this import batch was rejected; nothing "
+                "was written."
+            ),
+        },
+    )
+
+
 @app.exception_handler(orders_service.StoreNotConfiguredForImport)
 async def store_not_configured_for_import_handler(
     request: Request, exc: orders_service.StoreNotConfiguredForImport
@@ -808,7 +831,7 @@ def import_orders(
     operation_id: str = Header(alias="Idempotency-Key"),
     scope: StoreScope = Depends(request_scope),
 ) -> dict[str, object]:
-    """Import or refresh a batch of orders into one store (US-005a).
+    """Import or refresh a batch of orders into one store (US-005a, US-005b-1).
 
     Owner, Admin and Manager may all import, store-scoped (capability
     matrix, ``walmart-user-stories.md:674``) -- no role gate, only
@@ -819,6 +842,13 @@ def import_orders(
     whole batch refreshed existing rows -- this story's own disclosed
     choice (``create_store``/``add_store_note`` precedent), not something
     either spec document pins.
+
+    US-005b-1: ``errors`` carries one entry per order rejected by the B-18
+    within-batch multi-SKU rule (empty on an ordinary import) -- a MIXED
+    batch still returns 2xx with the valid orders persisted and the
+    rejections visible here. A batch where EVERY order was rejected never
+    reaches this return at all: ``orders_service.import_orders`` raises
+    ``WholeBatchImportRejected`` instead, caught by the handler above (422).
     """
     items = [
         orders_service.OrderImportItem(
@@ -836,7 +866,7 @@ def import_orders(
     ]
 
     with connection() as conn:
-        results, replayed = orders_service.import_orders(
+        results, errors, replayed = orders_service.import_orders(
             conn,
             scope,
             actor_id=scope.actor_id,
@@ -853,7 +883,7 @@ def import_orders(
     return {
         "data": {"orders": results},
         "meta": {"operation_id": operation_id, "replayed": replayed},
-        "errors": [],
+        "errors": errors,
     }
 
 
