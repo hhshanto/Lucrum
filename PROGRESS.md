@@ -8,6 +8,14 @@ Stable rules live in `AGENTS.md` and `docs/`. Nothing in this file is a business
 
 ## Current position
 
+**US-005b-1 implemented and audited to a pass (`89707a9`), two rounds.**
+US-005 AC-03's backend half (durable, queryable import-run record) is
+covered by passing tests. **AC-03 itself is NOT done** -- the screen half
+(US-005b-2, UI-04) is a separate, not-yet-started story; "viewing the list"
+has nothing to view yet. 318 passed, 4 skipped; guardrail scan clean, 29
+files, 0 suppressions. Full account in its own section below, ahead of
+US-005a.
+
 **US-005a implemented and audited to a pass (`663eaae`), two rounds.** AC-01
 and AC-02 of US-005 ("Import and refresh orders") both covered by passing
 tests. 295 passed, 3 skipped; guardrail scan clean, 28 files, 0 suppressions.
@@ -26,6 +34,192 @@ section below and in the blockers table.**
 **A second, unrelated item surfaced mid-session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` were found sitting in the tree from an apparently-interrupted prior session. `theme.txt` read as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) that **contradicted** `docs/walmart-store-manager-design.md`'s own UX baseline. Escalated as **B-16** rather than built on, deleted, or silently rewritten. **The Owner closed it the same session**: `theme.txt` is intentional for this project but advisory only -- "the idea and inspiration," not a literal palette/font/technique requirement, and does not override the data-dense/sober baseline. See the Decisions log.
 
 **UI-01 (sign-in screen and authenticated shell) built on the strength of that ruling.** The test file was revised first (test-author, before any implementation) to drop every literal-`theme.txt`-value assertion and replace it with the underlying theme-agnostic engineering/accessibility property instead (a real WCAG contrast floor, token-declared-once discipline, independently-settable heading/body typography) -- committed `a1b61c7`. The screen was then implemented against that revision (`src/templates/`, `src/static/css/app.css`, `src/web/routes.py`, committed `fd2b0fe`) and audited to a **clean pass on the first round** -- no blocking findings, no fix round needed. **34 passed, 1 skipped** (F-13, unchanged) against that file alone, **262 passed, 3 skipped** for the full suite, guardrail scan clean (24 files, 0 suppressions). No new business rule was implemented -- every route calls `access_service.sign_in` / `authenticate` / `resolve_scope` / `sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through a cookie instead of a bearer header. Full detail below, in its own "UI-01" section ahead of US-004.
+
+---
+
+## US-005b-1 -- durable, queryable import-run record (backend half of AC-03)
+
+Full pipeline, `spec-oracle` -> `test-author` -> `story-implementer` ->
+`invariant-auditor`, **two audit passes**, both independently verified by me
+(git diff/log, full suite re-run, scanner re-run myself, not taken from
+either agent's report). Final state `89707a9`.
+
+**Split decision, made before any test was written.** The checkpoint left at
+the end of the prior session required a fresh `spec-oracle` pass before
+`test-author`, because two Owner decisions (G-6: build a real screen; B-18:
+reject a multi-SKU order whole, visibly) postdated the existing seven-item
+brief. The fresh brief's own section G laid out the evidence plainly: AC-03
+plus the B-18 fix touches `src/orders/` (new tables, a revision to
+already-merged US-005a code) **and** `src/web/` + `src/templates/` (UI-04,
+which does not exist in any form). Two modules. Split, per the standing
+rule -- **US-005b-1** (this story) is the backend half: a durable, queryable
+import-run record. **US-005b-2** (not started) is the UI-04 screen that
+reads it. **AC-03 is not fully covered until US-005b-2 lands** -- "viewing
+the list" literally has nothing to view yet; only the data it would read
+exists.
+
+**B-18 was folded into b-1, not deferred.** Same module, same migration,
+same `import_errors` mechanism AC-03's "failure visible" half needed anyway
+-- and without it, AC-03's failure-visibility tests would have had only a
+synthetic failure to test against rather than the Owner's actual ruling.
+
+| AC / rule | Status |
+|---|---|
+| AC-03.1 successful run durably recorded | **covered** |
+| AC-03.2 failed run recorded, last-success marker not advanced | **covered** |
+| AC-03.3 stale data not labeled current (total-failure shape) | **covered** |
+| AC-03.3 (mixed/partial-failure shape) | **covered** -- closed in the fix round (F-95) |
+| AC-03.4 unknown is not zero (never-imported is a distinct state) | **covered** |
+| B-18 multi-SKU order rejected whole, visibly (within-batch) | **covered** |
+| B-18 same-SKU duplicate lines rejected whole, visibly | **covered** -- closed in the fix round (F-96), raised as interim **B-21** |
+| B-18 cross-batch SKU disagreement (a later import contradicting a stored row) | **deliberately not built** -- undecided business question, raised as **B-19**, its test written in full and skipped, citing the blocker |
+| AC-03 screen ("viewing the list") | **out of scope** -- US-005b-2 |
+
+**What shipped.** One migration (`004_import_tracking.sql`), `import_batches`
+and `import_errors` at full documented shape
+(`database-schema.md:965-998`), enum `CHECK`s at the database layer (the
+same DB-01 discipline US-005a applied to `fulfillment_status_code`), not
+only in Python. `src/orders/repository.py` gained
+`create_import_batch`/`finish_import_batch`/`insert_import_error`/
+`get_import_run_state` -- the last one answers three distinguishable
+states for a store (never imported / last run succeeded / last run failed,
+with the earlier success still reported), scope composed into the SQL via
+a CTE (the F-22 discipline, re-applied), never fetched then filtered in
+Python. `src/orders/service.py`'s `import_orders` now groups submitted
+items by `walmart_order_id`; a group spanning more than one SKU, or more
+than one line sharing the same SKU, is rejected whole and visibly, while
+every other order in the batch still commits; the function opens, tracks
+and closes an `import_batches` row (`completed`/`partial`/`failed`).
+
+**No staleness threshold was invented.** `spec-oracle`'s fresh brief
+re-verified, independently, that no staleness window exists anywhere in
+the specification -- no `period-v1` clause, no policy table, no config
+row -- and that AC-03's own text requires only that data is *not labeled
+current* after a failure, not a computed stale/fresh boolean. The auditor
+confirmed this structurally, not just by reading: `get_import_run_state`
+performs no time arithmetic of any kind; the "never labeled current"
+guarantee comes from the four-key response shape itself (pinned by set
+equality in a test), not a threshold.
+
+**Four engineering inventions, each disclosed at its point of use** (same
+posture as B-12's `store_created`): the `import_errors.error_code` value
+for a multi-SKU rejection (`MULTIPLE_SKUS_FOR_ORDER`) and, after the fix
+round, a second, distinct code for a same-SKU duplicate-line rejection
+(`DUPLICATE_ORDER_LINE`) so the two conditions stay distinguishable in
+durable data; the 422 status for a wholly-rejected batch; the counting
+granularity (per distinct `walmart_order_id`, not per raw submitted
+line); and reusing `_EVENT_TYPE = "orders_imported"` across success,
+partial and failure outcomes rather than coining three.
+
+**One interim authority ruling, labelled as such, raised as a new
+blocker.** Who may read a store's import run state is ungoverned by any
+capability-matrix row. Applied **store-scope-only** -- the same gate as
+triggering an import -- not the Owner-only B-13/B-15 shape, because those
+concerned administrative power over *other users*, and this is operational
+data about a store the caller already has scope to; a Manager who may
+trigger an import but may not see whether it failed would defeat AC-03's
+purpose. Labelled interim in the code, raised as **B-20**.
+
+**`failed` vs `partial` classification for a mixed batch is deliberately
+left unpinned (G-7).** No document anywhere defines this transition rule
+for order-import batches -- the only transition language in the spec
+governs *settlement* batches, a different table, a different policy. The
+implementer's choice (`partial`) is disclosed as judgment, not a spec
+reading, and the tests assert only the AC-03-mandated negative (`!=
+"completed"`), never the literal value, so an Owner ruling on `failed` vs
+`partial` can still land without touching a test.
+
+### Pass 1 (2 blocking)
+
+**F-95, the sharp one.** Mutating `outcome = "partial"` -> `"completed"`
+survived the entire suite. Under the mutation a refresh that rejected an
+order would advance the store's last-success marker and report
+`last_attempt_status == "completed"` -- verbatim AC-03's forbidden
+outcome, "stale data is labeled current." No test submitted a mixed batch
+(one valid order, one rejected) at all.
+
+**F-96.** Two submitted lines sharing one `walmart_order_id` with the
+*same* SKU hit an unguarded fallthrough (`items[0]`, `items[1:]`
+discarded) -- no error row, no count, no comment -- while the batch
+affirmatively reported `success_count=1, error_count=0, completed`. An
+undisclosed behaviour change to already-merged, already-audited US-005a
+code (which previously upserted every line, last-wins), and precisely the
+silent skip the Owner's B-18 ruling forbids.
+
+**The fix round closed both.** F-95 needed **no code change** -- the
+classification logic was already correct, only unproven; a new test
+(asserting only the AC-03-mandated negative, not the undecided `partial`
+literal) was added and validated by mutation (applied, confirmed red,
+reverted, confirmed `src/` clean via `git diff`). F-96 got a genuine third
+branch: a group with `len(skus) == 1` and `len(items) > 1` is now rejected
+whole, under a distinct error code, citing interim blocker **B-21** (is a
+same-SKU duplicate a legitimate quantity split, or a BR-02 violation? --
+undecided; "there are no order line items" is BR-02's operative clause
+and does not turn on whether the SKUs match, so the interim ruling follows
+BR-02's literal text and the Owner's explicit "never a silent skip," and
+is reversible in one branch). I verified both independently before
+requesting pass 2: `tests/` byte-identical to the pre-fix-round test
+commit, 318 passed / 4 skipped, scanner clean, zero suppressions, and the
+diff confined to `src/orders/service.py` + `src/orders/__init__.py`.
+
+### Pass 2: pass, with one re-opened finding and four closed
+
+The auditor traced every new branch to its test (or to the honest absence
+of one) rather than accepting either fix's description. F-95: confirmed
+the classification code is byte-identical to the pre-fix commit via hunk
+arithmetic on the diff, and traced three independent ways the new test
+goes red under the mutation (batch-row assertion, last-success-at
+assertion, last-attempt-status assertion). F-96: confirmed the new
+branch's ordering cannot starve the multi-SKU check (`skus` is a set,
+checked first), confirmed zero `orders` rows survive (the `continue`
+precedes the write), confirmed every new line is load-bearing (each one
+independently, by deletion), and confirmed B-21's ruling is genuinely
+"reject whole" with no stronger/different behaviour (no quantity summing
+anywhere).
+
+**One of the four non-blocking items the fix round claimed to close was
+not actually closed, and is carried forward rather than marked done:**
+**F-99**, a comment misattributing which object's `__exit__` performs the
+rollback that makes an explicit `conn.commit()` necessary before a
+mid-transaction raise. The first fix round's attempted correction
+*replaced one wrong claim with a different wrong one* -- it now asserts
+the pool's own context-manager `__exit__` performs the rollback, when the
+auditor traced it, against the installed library's actual source
+(`psycopg_pool/pool.py`), to `psycopg.Connection.__exit__`, entered via a
+plain `with conn:` inside the pool's generator. I read the comment myself
+afterward and confirm the auditor's finding; it is still wrong, just
+differently. Not blocking -- the `conn.commit()` call itself is correct,
+necessary, and proven by two tests; only the prose explaining *why* is
+wrong, the exact F-87/F-91 shape (a comment correct about *whether*,
+wrong about *why*) now a third time running. **Left open, not closed, in
+this record** -- the next person to touch `src/orders/service.py` should
+fix the wording, not re-trust it.
+
+Three other non-blocking items were genuinely closed and independently
+re-verified: **F-98** (the package docstring no longer claims AC-03 is
+unimplemented, and makes no new overclaim either), **F-101**
+(`WholeBatchImportRejected.batch_id` is now `uuid.UUID` on both the
+original-raise and replay-reconstruction paths -- itself untested, since
+nothing over HTTP surfaces it yet, correctly left that way until
+US-005b-2), **F-102** (the module docstring's "invented conventions" list
+now names all four, including the `_EVENT_TYPE` reuse across outcomes).
+
+### Carried forward from US-005b-1 (non-blocking)
+
+**F-99** (re-opened, see above) the `conn.commit()` comment at
+`service.py:600-617` still misattributes the rollback mechanism. Fix the
+prose; the commit itself is correct.
+**F-103** the `audit.DuplicateOperation` concurrency backstop on the new
+write path is structurally present and unexercised by any
+single-threaded test -- the same acknowledged class as US-003's,
+US-004's, and US-005a's equivalent backstops (F-75, F-92). Needs BT-04
+concurrency work, not another audit round.
+**F-105** `get_import_run_state` has no HTTP caller anywhere in `src/` --
+correct and expected for a backend-half story; it becomes load-bearing
+the moment US-005b-2 calls it.
+**B-21** (new) is cited in the code (`service.py`) but, until this entry,
+did not exist in this file's blockers table -- the auditor caught the
+dangling citation (F-97) in pass 1; closed by this record existing.
 
 ---
 
@@ -809,82 +1003,71 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-**CHECKPOINT, 2026-10-28. Session stopped here deliberately -- "this one got
-bigger," start the next session fresh rather than pushing on.** Working
-tree is clean, everything below is committed (`f13ba5c`), suite green
-(295 passed, 3 skipped), scanner clean (28 files, 0 suppressions).
+**CHECKPOINT, 2026-10-28 (second session of the day).** US-005b-1 is
+implemented and audited to a pass (`89707a9`). Working tree clean, suite
+green (318 passed, 4 skipped), scanner clean (29 files, 0 suppressions).
 
-**Exact next step, not yet started: re-run `spec-oracle` for US-005b before
-`test-author`.** The brief on file (see the "US-005b" section below) answered
-G-1 through G-7, but two of them were left for the Owner rather than decided
--- **both are now decided** and change the brief's own conclusions enough
-that it needs a fresh pass, not a patch:
+**Exact next step: US-005b-2, the UI-04 screen half of AC-03.** US-005b
+was split (see the US-005b-1 section above) because it spanned two
+modules -- `src/orders/` (done, this session) and `src/web/` +
+`src/templates/` (not started). **AC-03 is not done until this lands** --
+"viewing the list" has nothing to view yet. Start with a fresh
+`spec-oracle` pass scoped narrowly to: what UI-04 must show for AC-03
+specifically (last success, latest failure, never labeled current --
+`get_import_run_state` already answers this), where it sits relative to
+US-006 (which owns the rest of UI-04's columns and has not started), and
+whether building a minimal AC-03-only slice of UI-04 now versus waiting
+for US-006 to build the whole screen is the smaller slice. Do not build
+more of UI-04 than AC-03 needs -- that would be scope creep in the other
+direction, preempting US-006's filter/sort/pagination work.
 
-- **G-6 (screen vs API-only): decided -- build a real rendered screen.**
-  "Screen would be fine. I wanna see things and interact." This is the
-  first slice-2 story to build a screen as part of its own scope (every
-  earlier slice-1/2 story deferred rendering to a dedicated UI story, e.g.
-  UI-01). G-5 ("which list") is resolved by the same answer: the orders
-  list, UI-04.
-- **B-18 (the multi-SKU contradiction): decided -- reject the whole order
-  at import time, never split, never partially imported, and the rejection
-  must be visible, not a silent skip.** This was flagged as a live defect in
-  US-005a's own already-audited, already-merged code
-  (`src/orders/service.py`), not a US-005b design question -- the
-  `(store_id, walmart_order_id)` upsert key has no SKU component, so two
-  lines sharing one `purchaseOrderId` would silently overwrite one another
-  today. **"Flag it somewhere" and AC-03's "failure ... visible" turn out to
-  need the same infrastructure** -- a durable, visible record of an
-  import-time problem (`import_batches`/`import_errors`,
-  `database-schema.md:965-998`, specified but never migrated -- see G-1/G-2
-  in the US-005b section). Building both together, sharing one migration,
-  is deliberate, not scope creep: confirm this reasoning holds before
-  committing to it.
+**Three Owner items raised this session, all interim rulings pending
+confirmation:**
+- **B-19** -- cross-batch SKU disagreement (a later import's `sku`
+  disagreeing with an already-stored row for the same
+  `(store_id, walmart_order_id)`). Undecided: legitimate correction, or
+  the same BR-02 contradiction arriving one call later? The Owner's B-18
+  ruling covers only the within-batch case. Live, unguarded today --
+  `repository.py:91` still does `sku = excluded.sku`. Its test is written
+  in full and skipped, citing this blocker.
+- **B-20** -- who may read a store's import run state. No capability-matrix
+  row distinguishes "view import history" from "trigger an import"
+  (`walmart-user-stories.md:674` grants all three roles the latter).
+  Applied store-scope-only (not Owner-only, unlike B-13/B-15 -- this is
+  operational data about a store the caller already has scope to, not
+  administrative power over other users). Labelled interim.
+- **B-21** -- a same-SKU duplicate line (two submitted lines, one
+  `walmart_order_id`, same `sku`) is currently treated as a second,
+  separate BR-02 violation and rejected whole, same as a genuine multi-SKU
+  conflict. Could instead be a legitimate quantity split. Interim ruling
+  follows BR-02's literal "there are no order line items" plus the
+  Owner's "never a silent skip". Reversible in one branch.
 
-**What the next session's spec-oracle call needs to resolve, specifically:**
-1. Exact design for detecting a multi-SKU conflict -- both within one
-   import batch (two `OrderImportItem`s, same `walmart_order_id`, different
-   `sku`) and across repeated imports (a new item's `sku` disagreeing with
-   an existing row's). The current code only has the first shape to protect
-   against; the second is equally real and currently equally unprotected.
-2. What "visible" concretely resolves to -- an `import_errors` row surfaced
-   on the UI-04 orders list screen is the leading candidate, not yet
-   confirmed against any doc citation.
-3. Whether this is still one story (US-005b, now carrying both the screen
-   and the B-18 fix) or needs splitting -- it touches `src/orders/` (backend
-   logic, a revision to already-merged US-005a code) and a new `src/web/` +
-   `src/templates/` surface (the screen itself). Two modules, but one AC
-   requires both; previous splits (US-002, US-005 itself) were triggered by
-   genuinely separable concerns, not by touching two directories as such.
-   Decide this once the brief is back, the way US-002/US-005's splits were
-   decided after their own spec-oracle briefs, not before.
-
-**Do not skip straight to test-author.** The existing seven-item brief is a
-good foundation but was written before either decision landed; at minimum
-G-5/G-6's answers and the B-18 fix's design need folding in before a test
-is written against them.
+Also still open from the prior session, unaffected by this one:
+**G-7** (`failed` vs `partial` batch classification for order imports has
+no documented transition rule -- deliberately left unpinned, tests assert
+only the AC-03-mandated negative) and **F-99** (a comment in
+`service.py:600-617` explaining the `conn.commit()` fix still
+misattributes the rollback mechanism to the wrong object -- the `commit()`
+itself is correct and proven by two tests, only the prose is wrong; fix
+the wording next time the file is opened, do not re-trust it).
 
 **US-005c (AC-04-08, posting-period assignment) still cannot start** until
 **B-17** is answered -- nobody owns accounting-month provisioning, confirmed
 by exhaustive search across every story in the document, not inferred.
 Needs a new US-id or an explicit amendment naming an existing story.
 
-**B-3 (`.env` credentials) is closed, verified against the live API.** Full
-account in the "US-005a" section below and the Decisions log. One near-miss
-caught and reverted in the process: real credentials had briefly landed in
-the tracked `.env.example` template, caught before `git add`.
-
 **Slice 1 is still not fully closable** -- B-5 (deployment) and B-10 through
 B-15 remain open Owner one-liners. None of them block slice 2's code.
 
-**Process note carried forward:** commit before requesting a second audit
-pass, every time (F-94/F-18's lesson, repeated three times now across
-US-002a, US-005a). Also carried: when a fix touches already-merged,
-already-audited code from an earlier story (as the B-18 fix will, in
-`src/orders/service.py`), that is not exempt from the same pipeline --
-spec-oracle, a failing test first, implementation, then an audit pass --
-even though the story itself (US-005a) is closed. The code is not closed;
-the story's audit was a verdict on a point in time.
+**Process notes carried forward, both reconfirmed working this session:**
+commit before requesting a second audit pass, every time (F-94/F-18's
+lesson); and when a fix touches already-merged, already-audited code from
+an earlier story, it still goes through the full pipeline -- spec-oracle,
+a failing test first, implementation, then an audit pass -- even though
+the earlier story's own audit was a verdict on a point in time, not a
+permanent exemption. This session's B-18 fix (to US-005a's merged
+`service.py`) followed that rule.
 
 Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 
@@ -894,7 +1077,7 @@ Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 |---|---|---|
 | 0 Skeleton | -- | **done.** Step 5 guardrail proof demonstrated 2026-10-24 |
 | 1 Access and stores | US-001-004, UI-01 | US-001 done. US-002a (AC-01, AC-02) audited, blocked on B-10. US-002b (AC-03, AC-04) blocked on B-8, deferred to slice 2. US-003 audited to a pass, blocked on B-11; carries B-12, B-13, B-14. **US-004 implemented and audited to a pass** (`a9ea6aa`); carries B-15. **UI-01 (sign-in screen, authenticated shell) implemented and green** against `tests/test_ui001_sign_in_screen.py` (34 passed, 1 skipped alone; 262 passed, 3 skipped full suite). All four stories exist in code; **slice not deployed (B-5)** |
-| 2 Orders | US-005…007 | **US-005 split three ways. US-005a (AC-01, AC-02) implemented and audited to a pass** (`663eaae`, 295 passed/3 skipped, scan clean). US-005b (AC-03) not started. US-005c (AC-04-08) blocked on B-17 |
+| 2 Orders | US-005…007 | **US-005 split three ways. US-005a (AC-01, AC-02) implemented and audited to a pass** (`663eaae`, 295 passed/3 skipped, scan clean). **US-005b split again: US-005b-1 (backend import-run record) implemented and audited to a pass** (`89707a9`, 318 passed/4 skipped, scan clean). US-005b-2 (UI-04 screen) not started -- AC-03 not done until it lands. US-005c (AC-04-08) blocked on B-17 |
 | 3 Costing and estimates | US-008ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦014, US-030 | not started |
 | 4 Settlement evidence | US-015ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦017 | not started |
 | 5 Reconciliation | US-018ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦021, US-031 | not started |
@@ -911,7 +1094,10 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | ~~B-1~~ | ~~Golden orders~~ | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | **Closed 2026-10-23.** 20 real cases loaded and verified |
 | B-2 | **C-01 narrowed, not closed.** `walmart-probe` ran against the live store and proposed 13 settlement-category mappings in `docs/walmart/settlement-recon-v1.md`, each marked confirmed or explicitly uncertain, with one real category (`Fee/Reimbursement`) deliberately left unmapped and recommended for suspense rather than guessed. **No row has been applied to any running config/table** — the proposal is evidence, not a decision. Needs Owner review before `settlement_category_mappings` (or equivalent) is actually populated | Slice 4 commit | **You** — review `docs/walmart/settlement-recon-v1.md` and approve/amend the 13 proposed rows |
 | ~~B-3~~ | ~~`.env` credential naming/value conflict~~ | -- | **Closed this session.** You renamed `clientID`/`clientSecret` to `WALMART_CLIENT_ID`/`WALMART_SECRET_KEY`, but left the old, pre-existing `WALMART_SECRET_KEY` line in place too — two lines, same name, two values. Verified empirically (`dotenv_values`) that `python-dotenv` resolves duplicate keys last-wins, so the app already saw the correct new pair; I deleted the stale first line for clarity (no behaviour change) and confirmed the resolved values were unchanged before and after. `walmart-probe` then authenticated successfully against the live API (`200` from Walmart's token endpoint) and completed a full fixture-recording pass. **Separately, caught and reverted a near-miss**: an earlier edit had pasted the live credential values into `.env.example` — the tracked template file, never meant to hold real secrets (its own line 1 says so) — uncommitted, caught before `git add`, reverted with `git checkout -- .env.example`. `.env` itself remains correctly gitignored throughout; confirmed with `git check-ignore -v` |
-| ~~B-18~~ | ~~A real Walmart order contradicts BR-02~~ | -- | **Decided this session.** Reject the whole order at import time (never split it, never silently import only the first line); make the rejection visible, not a silent skip. This is the "reject visibly" shape the probe described, not a recommendation. **Spec amendment still pending, same relationship as B-7/B-10** — this is a rule about order-import behaviour and belongs in `docs/walmart-user-stories.md` (BR-02 itself, or a new AC), not only in this file or a code docstring, once the exact wording is worked out in US-005b's implementation. See Decisions log |
+| ~~B-18~~ | ~~A real Walmart order contradicts BR-02 (within-batch, two lines in one import request)~~ | -- | **Decided by the Owner, implemented in US-005b-1 (`89707a9`).** A multi-SKU order is rejected whole at import time (neither line persisted), recorded visibly in `import_errors`, every other valid order in the same batch still commits. Covered by passing tests. **Spec amendment still pending, same relationship as B-7/B-10** — belongs in `docs/walmart-user-stories.md` (BR-02 itself, or a new AC), not only in this file. See Decisions log. **Narrower than it first looked**: the Owner's ruling covers only two lines *disagreeing on SKU within one batch*. Two further shapes split off as their own blockers below (B-19, B-21) |
+| B-19 | **Cross-batch SKU disagreement.** A *later* import whose `sku` disagrees with the already-stored row for the same `(store_id, walmart_order_id)` -- not covered by B-18's ruling, which is phrased around the within-batch case. Could be a legitimate correction (Walmart fixed a wrong SKU) or the same BR-02 contradiction arriving one call later. **Live and unguarded today** -- `src/orders/repository.py:91` still does `sku = excluded.sku`, silently overwriting. Its test (`tests/test_us005b1_import_run_record.py`) is written in full and `@pytest.mark.skip`'d, citing this blocker, so the gap stays visible on every run | US-005b-2 and beyond -- any future refresh of a store that already has orders | **You** — correction or contradiction? |
+| B-20 | **Who may read a store's import run state?** No capability-matrix row distinguishes "view import history" from "trigger an import" (`walmart-user-stories.md:674` grants Owner/Admin/Manager the latter, nothing addresses the former). **Interim: store-scope-only** — not the Owner-only B-13/B-15 shape, because this is operational data about a store the caller already has scope to, not administrative power over other users; a Manager who may trigger an import but may not see whether it failed would defeat AC-03's purpose. Enforced in code (`src/orders/repository.py`, `get_import_run_state` docstring), labelled interim | Nothing today (no HTTP caller exists yet); becomes load-bearing the moment US-005b-2 calls it | **You** — rule on it |
+| B-21 | **Is a same-SKU duplicate line a legitimate quantity split, or a second BR-02 violation?** Two submitted lines sharing one `walmart_order_id` AND the same `sku` -- distinct from B-18's differing-SKU case. **Interim: treated the same as B-18** — rejected whole, visibly, under a distinct `import_errors.error_code` (`DUPLICATE_ORDER_LINE`, kept separate from `MULTIPLE_SKUS_FOR_ORDER` so the two conditions stay distinguishable in durable data). Follows BR-02's literal "there are no order line items" (which does not turn on whether the SKUs match) plus the Owner's explicit "never a silent skip". Reversible in one branch — covered by a real, unskipped test (not a skip like B-19, since "must not vanish silently" needs no ruling either way) | Nothing today; would need a code change (and a new test) if ruled the other way | **You** — rule on it |
 | B-17 | **Nobody owns accounting-month provisioning.** `walmart-slice-plan.md:106` assigns "the month provisioning job" to slice 2. `api-service-design.md:266` makes `POST /months/provision` the **only** way a month comes into existence, and D-09 (`walmart-user-stories.md:1154`) forbids import from ever creating one. A capability row exists for the *authority* (`:673`, Owner/Admin yes, Manager no) — but **no acceptance criterion in US-005, US-006, US-007, US-022–025 or US-030 builds the endpoint or the job.** Confirmed by exhaustive search, not inference. US-005c *consumes* provisioned months; consuming is not building. **Not folded into US-005a/b/c** — that would invent an owner | **US-005c** (AC-05/06/07 are untestable without it) | **You** — a new US-id, or amend an existing story to own it |
 | B-4 | No Postgres instance provisioned | Slice 0 | **You** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â pick Neon, Railway or RDS |
 | B-5 | No deployment target chosen | Slice 0 "deployed" criterion | **You** |
@@ -974,6 +1160,7 @@ Newest first. One line each: what was completed, what is now true that was not b
 
 | Date | Session outcome |
 |---|---|
+| 2026-10-28 | **US-005b-1 (durable, queryable import-run record) implemented and audited to a pass (`89707a9`), two rounds.** Opened with a fresh `spec-oracle` pass (the checkpoint required it, since G-6 and B-18 postdated the earlier brief); its section G laid out that AC-03 plus the B-18 fix spans `src/orders/` and `src/web/`/`src/templates/` -- two modules -- so the story was split again: **US-005b-1** (this session, backend) and **US-005b-2** (UI-04 screen, not started). `test-author` wrote 21 tests (20 failing, 1 deliberately skipped citing new blocker B-19), each verified by me to fail for the right reason, including one that reproduced the live B-18 defect exactly (a multi-SKU order returned `201` with both result entries pointing at one `order_id`). `story-implementer` built one migration (`004_import_tracking.sql`, both tables at full documented shape) and extended `src/orders/`: `get_import_run_state` (three distinguishable states, scope composed into SQL via a CTE, the F-22 discipline reapplied) and the B-18 whole-order rejection in `import_orders`. Audit pass 1 failed on two blocking findings, both the "correct but unproven" shape this project keeps hitting: **F-95**, mutating the mixed-batch `partial` outcome to `completed` survived the entire suite and produced AC-03's literally forbidden result (stale data reported as current); **F-96**, two lines sharing an order id and the *same* SKU were silently discarded, an undisclosed behaviour change to already-merged US-005a code. Returned to test-author (not straight to the implementer) since F-95 needed a new assertion and F-96 needed a business-rule call I made explicitly rather than leaving to an agent: treat a same-SKU duplicate the same as a differing-SKU conflict, per BR-02's literal "there are no order line items" and the Owner's "never a silent skip" -- raised as new blocker **B-21**, reversible. Fix round closed both (F-95 needed no code change, only a test, validated by mutation; F-96 got a genuine third branch). Pass 2: pass, with one re-opened non-blocking finding (F-99 -- the fix round's attempted correction to a misattributed-rollback comment replaced one wrong claim with a different wrong one, caught by the auditor tracing the installed `psycopg_pool` source directly) and three genuinely closed. **318 passed, 4 skipped**, scan clean, 29 files, 0 suppressions, verified independently at every stage (diffs, test runs, scanner re-executed myself, never taken from an agent's own report). **AC-03 is not done** -- the screen half is a separate, not-yet-started story. |
 | 2026-10-27 | **US-005a implemented and audited to a pass (`663eaae`), continuing from the prior session's step 2.** `story-implementer` built one migration (`003_orders.sql`, `orders` and `accounting_months` both at full documented shape) and one module (`src/orders/`), confirming the module-boundary scope before editing. Audit pass 1 failed on two blocking findings: **F-88**, the entire idempotent-replay path (pre-check, `store_id` guard, the audit write itself, the concurrency backstop) was provably deletable with the suite staying green -- the F-72 shape from US-004, one level worse; **F-89**, the suite was red on a `.fetchone()[0]`-vs-`dict_row` bug in the test-author's own committed file, unrelated to the implementation. Fix round touched only the test file (three new replay tests, one-line row-access fix) -- verified independently before requesting pass 2 (`git diff --stat`, full suite, scanner), which passed, with a correction worth keeping: the fix round's own new test docstring misstated which guard branch a deletion would be caught by, and the auditor traced the actual mechanism rather than trusting the test's name. Five non-blocking findings carried forward (F-90…F-94). **Separately, verified a user claim before acting on it rather than after:** asked to "run it" for `walmart-probe` on the strength of "the client ID is in the env," checked `.env` directly first and found two problems the user hadn't -- `WALMART_CLIENT_ID` was never added (the new lines are `clientID`/`clientSecret`, wrong names, read by nothing) and the new `clientSecret` value contradicts the pre-existing `WALMART_SECRET_KEY` line. Reported precisely rather than proceeding or guessing which secret is current. B-3 updated accordingly; probe not re-run. Committed implementation before requesting the second audit pass this time, closing the F-94/F-18 process gap the previous two stories both hit. |
 | 2026-10-27 | **Slice 2 opened. US-005 split three ways; US-005a is at pipeline step 2 of 4 — failing tests written and committed, no implementation yet.** `spec-oracle` produced a cited brief (reused verbatim downstream instead of being re-derived per agent, which was the main source of wasted time in earlier stories). It returned **three gaps**, all ruled on under the B-13/B-15 narrowest-reading precedent rather than escalated for another round-trip: "supported order payload" is undefined (C-02 governs settlement reports, not orders) so **no** unsupported-payload branch is built; month provisioning is unowned (**B-17**); inactive-store writes refuse visibly (**B-9** interim). It also settled the retrofit question: `orders` carries its full column shape — `accounting_month_id` nullable and underived (DB-06), `scope_status_code`, `posting_status_code` — from the **first** migration, and `accounting_months` is created at full shape purely to satisfy the FK. `test-author` wrote **30 failing tests** (`tests/test_us005a_import_orders.py`), each annotated with the mutation it would catch, and **self-caught a defect in its own first draft**: the out-of-scope-store test passed with zero production code because both calls hit FastAPI's generic routing 404 — the exact US-004 trap — fixed with a control import that must return 201. **`walmart-probe` ran in parallel and correctly refused to proceed:** I passed it the Owner's claim that `WALMART_CLIENT_ID` was in `.env` as established fact; it verified, found only `WALMART_SECRET_KEY`, and confirmed empirically with a `400` from Walmart's token endpoint. It wrote no fixtures rather than synthesising plausible ones. B-3 reframed accordingly. **My error, not the probe's** — I restated an unverified claim as fact in a task brief. |
 | 2026-10-27 | **UI-01 (sign-in screen and authenticated shell) implemented and made green against `tests/test_ui001_sign_in_screen.py` (`a1b61c7`).** No new business rule -- every route calls `access_service.sign_in`/`authenticate`/`resolve_scope`/`sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through an `HttpOnly`/`SameSite=Lax` session cookie instead of a bearer header. Added `src/templates/` (`index.html`, `sign_in.html`, `shell.html`), `src/static/css/app.css` (design tokens: an 18-property `:root` palette each declared once, independent `--font-heading`/`--font-body` tokens, a real `:focus-visible` indicator, a `prefers-reduced-motion` block, body-text-on-background contrast verified at ~13.8:1 against a 4.5:1 floor), and `src/web/routes.py` (`GET /`, `GET`/`POST /sign-in`, `GET /app`, `POST /sign-out`), wired into `src/main.py` via `app.include_router` plus one `app.mount("/static", ...)`. Added `python-multipart` to `requirements.txt` -- confirmed necessary, not assumed, by reading Starlette's own `Request.form()`, which asserts `parse_options_header is not None` before even checking content type. **34 passed, 1 skipped** (pre-existing F-13 skip, untouched) for this file alone; **262 passed, 3 skipped** full suite, zero regressions; guardrail scan clean, 24 files, 0 suppressions. Self-reviewed for the shape of gap US-003/US-004's audits kept finding (a branch correct but unproven) and found one: `GET /app`'s and `_optional_session`'s `except SessionInvalid` branches are both present but untested by this file, because every "after sign-out" scenario the test file builds drops the cookie entirely (confirmed empirically with a throwaway probe script) rather than leaving a merely stale one behind -- disclosed in the "UI-01" section above rather than silently left for an auditor. MFA entry for the HTML form was deliberately not built (no test signs in as Owner/Admin through it) -- disclosed in the route module's own docstring. |
