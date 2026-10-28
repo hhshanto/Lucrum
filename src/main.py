@@ -12,6 +12,8 @@ from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
@@ -27,6 +29,7 @@ from src.access import service as access_service
 from src.clock import InvalidTimezone, store_timezone, utc_now
 from src.config import ConfigurationMissing, load_settings
 from src.db.connection import close_pool, connection, init_pool
+from src.orders import service as orders_service
 from src.scoping import Forbidden, OutOfScope, StoreScope
 from src.stores import repository, service as stores_service
 from src.team import repository as team_repository, service as team_service
@@ -238,6 +241,41 @@ async def already_assigned_handler(request: Request, exc: team_service.AlreadyAs
         detail={
             "code": "ALREADY_ASSIGNED",
             "message": "This user is already assigned to this store.",
+        },
+    )
+
+
+@app.exception_handler(orders_service.StoreInactive)
+async def store_inactive_handler(request: Request, exc: orders_service.StoreInactive):
+    # B-9, interim (PROGRESS.md): an inactive store refuses a write,
+    # visibly -- never a silent 2xx. 409: a real conflict between the
+    # request and the store's current state, not a 403 (role is not the
+    # question) and not a 404 (the store is not hidden -- the caller is
+    # already in scope, since OutOfScope is checked first).
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "STORE_INACTIVE",
+            "message": "This store is inactive and cannot accept imports.",
+        },
+    )
+
+
+@app.exception_handler(orders_service.StoreNotConfiguredForImport)
+async def store_not_configured_for_import_handler(
+    request: Request, exc: orders_service.StoreNotConfiguredForImport
+):
+    # US-003 AC-02's own principle, extended: missing configuration needed
+    # to classify an order without guessing is named, not silently defaulted.
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "STORE_NOT_CONFIGURED_FOR_IMPORT",
+            "missing": exc.missing,
+            "message": (
+                "This store is missing configuration required to import "
+                "orders without guessing: " + ", ".join(exc.missing)
+            ),
         },
     )
 
@@ -680,6 +718,140 @@ def revoke_manager(
 
     return {
         "data": result,
+        "meta": {"operation_id": operation_id, "replayed": replayed},
+        "errors": [],
+    }
+
+
+class OrderImportItemRequest(BaseModel):
+    """One order within an import batch (US-005a AC-01).
+
+    ``api-service-design.md:772-783`` names the endpoint and says it
+    "upserts orders by (store_id, walmart_order_id)" but specifies no
+    request body shape -- this is this story's own reasoned, disclosed
+    choice, the same discipline ``GrantManagerRequest`` already applies to
+    its own unspecified body (see ``tests/test_us005a_import_orders.py``'s
+    module docstring, which reproduces the same reasoning).
+
+    ``extra="forbid"`` for the F-44 reason every write model in this file
+    carries it. ``selling_amount`` is deliberately typed ``str``, not
+    ``Decimal`` or a bare JSON number: FastAPI/Starlette parse the request
+    body through the standard library's ``json.loads`` before Pydantic ever
+    sees it, so a JSON numeric literal has already become a Python
+    ``float`` by the time any Pydantic field type could matter --
+    requiring a string is the only way this boundary can structurally
+    refuse a float rather than silently accepting one that arrived as a
+    bare number (profit-v1 / money.py: "Money cannot be built from a
+    float"). ``strict=True`` additionally forbids Pydantic's own lax
+    int/float-to-str coercion, so a client sending a bare JSON number is
+    rejected at validation rather than silently coerced.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    walmart_order_id: str = Field(min_length=1)
+    walmart_purchase_order_id: str | None = None
+    sku: str = Field(min_length=1)
+    item_description: str | None = None
+    order_placed_at_utc: datetime
+    quantity: int = Field(gt=0)
+    selling_amount: str = Field(strict=True, min_length=1)
+    currency_code: str = Field(pattern=r"^[A-Z]{3}$")
+    fulfillment_status_code: str
+
+    @field_validator("selling_amount")
+    @classmethod
+    def _selling_amount_is_an_exact_decimal_string(cls, value: str) -> str:
+        try:
+            Decimal(value)
+        except InvalidOperation as exc:
+            raise ValueError(f"not a valid exact decimal amount: {value!r}") from exc
+        return value
+
+    @field_validator("fulfillment_status_code")
+    @classmethod
+    def _fulfillment_status_is_one_of_the_four_documented_values(
+        cls, value: str
+    ) -> str:
+        # DB-01: the complete, exhaustive fulfillment set. refunded,
+        # settlement_pending and reconciled belong to a different state
+        # dimension (BR-10) and must be rejected here -- the application
+        # edge, not only by the database CHECK constraint -- so the
+        # caller gets a named validation error instead of a raw 500.
+        if value not in orders_service.FULFILLMENT_STATUSES:
+            raise ValueError(
+                f"{value!r} is not a fulfillment value. Must be one of "
+                f"{sorted(orders_service.FULFILLMENT_STATUSES)}."
+            )
+        return value
+
+
+class OrderImportRequest(BaseModel):
+    """A batch of orders for one store (US-005a AC-01/AC-02).
+
+    A batch of exactly one order is what every test in this story uses; the
+    list shape is kept so a later story's genuine multi-row batch needs no
+    endpoint change, but nothing about multi-row behaviour (partial
+    failure, batch visibility) is built or assumed here -- that is US-005b.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    store_id: uuid.UUID
+    orders: list[OrderImportItemRequest] = Field(min_length=1)
+
+
+@app.post("/imports/orders", status_code=201)
+def import_orders(
+    body: OrderImportRequest,
+    response: Response,
+    operation_id: str = Header(alias="Idempotency-Key"),
+    scope: StoreScope = Depends(request_scope),
+) -> dict[str, object]:
+    """Import or refresh a batch of orders into one store (US-005a).
+
+    Owner, Admin and Manager may all import, store-scoped (capability
+    matrix, ``walmart-user-stories.md:674``) -- no role gate, only
+    ``request_scope``'s store-scope check (404 for an out-of-scope or
+    nonexistent store, never 403 -- US-002 AC-02's posture, reused here).
+
+    201 the first time any order in the batch is created, 200 when the
+    whole batch refreshed existing rows -- this story's own disclosed
+    choice (``create_store``/``add_store_note`` precedent), not something
+    either spec document pins.
+    """
+    items = [
+        orders_service.OrderImportItem(
+            walmart_order_id=o.walmart_order_id,
+            walmart_purchase_order_id=o.walmart_purchase_order_id,
+            sku=o.sku,
+            item_description=o.item_description,
+            order_placed_at_utc=o.order_placed_at_utc,
+            quantity=o.quantity,
+            selling_amount=o.selling_amount,
+            currency_code=o.currency_code,
+            fulfillment_status_code=o.fulfillment_status_code,
+        )
+        for o in body.orders
+    ]
+
+    with connection() as conn:
+        results, replayed = orders_service.import_orders(
+            conn,
+            scope,
+            actor_id=scope.actor_id,
+            store_id=body.store_id,
+            orders=items,
+            operation_id=operation_id,
+        )
+
+    if not any(r["created"] for r in results):
+        # Nothing created on this call -- every order in the batch refreshed
+        # an existing row (or this is a replay of a call that did the same).
+        response.status_code = 200
+
+    return {
+        "data": {"orders": results},
         "meta": {"operation_id": operation_id, "replayed": replayed},
         "errors": [],
     }

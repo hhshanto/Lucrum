@@ -287,6 +287,17 @@ def _count_orders(url: str, store_id, walmart_order_id: str) -> int:
         ).fetchone()[0]
 
 
+def _fetch_audit_rows(url: str, operation_id: str) -> list[dict]:
+    """Same convention as `test_us003_create_store.py`'s own
+    `_fetch_audit_rows` -- a second, committed connection reading the
+    `audit_events` ledger directly by `operation_id`.
+    """
+    with psycopg.connect(url, row_factory=dict_row) as c:
+        return c.execute(
+            "select * from audit_events where operation_id = %s", (operation_id,)
+        ).fetchall()
+
+
 # ---------------------------------------------------------------------------
 # Schema-level invariants -- direct SQL against `orders`, independent of any
 # import endpoint or service. These fail right now with
@@ -470,7 +481,7 @@ class TestOrdersSchemaInvariants:
         "no such column anywhere" query would trivially pass on an empty
         database and prove nothing.
         """
-        exists = conn.execute("select to_regclass('public.orders')").fetchone()[0]
+        exists = conn.execute("select to_regclass('public.orders')").fetchone()["to_regclass"]
         assert exists is not None, "orders table does not exist yet"
         rows = conn.execute(
             "select table_name from information_schema.columns "
@@ -993,3 +1004,167 @@ class TestWriteRequiresAnIdempotencyKey:
             headers=_auth(token),
         )
         assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# F-88 (invariant-auditor, round 1 on US-005a): the idempotent-replay path
+# was entirely unproven. No test above ever reuses an Idempotency-Key, or
+# omits one beyond the single 422 check above. Proven here by deletion, the
+# same way the auditor itself found the gap: deleting the pre-check
+# (`service.py:233-237`), the `store_id` guard inside
+# `_check_import_replay_target` (`service.py:190-193`), the concurrency
+# backstop (`service.py:280-288`), or the `audit.record` call itself
+# (`service.py:268-279`) must each break at least one test below.
+#
+# Conventions follow `test_us003_create_store.py`'s own
+# `TestF31ReplayIsBoundToEntityAndEventType` directly -- same
+# `_fetch_audit_rows` helper, same "control call succeeds, reused key is
+# refused" shape, same "no row leaked across the boundary the key was
+# reused across" assertion.
+# ---------------------------------------------------------------------------
+
+
+class TestF88ReplayPathIsProven:
+    def test_ac02_an_honest_retry_under_the_same_key_replays_without_a_second_row(
+        self, client, migrated_database
+    ):
+        """Honest replay: the SAME operation_id, the SAME store, the SAME
+        payload, sent twice -- the shape of a client that genuinely did not
+        see the first response and retried, not a second, later import run
+        (that is `test_ac02_reimporting_the_same_source_order_does_not_
+        create_a_duplicate_row`, a DIFFERENT operation_id, above).
+
+        Mutation this catches: deleting the pre-check
+        (`audit.find_by_operation` in `import_orders`) would run the
+        upsert a second time -- still only one row survives, because the
+        upsert itself is keyed on `(store_id, walmart_order_id)` (AC-02),
+        but a SECOND audit_events row would exist for the same
+        operation_id, which `audit_events`'s own unique constraint on
+        `operation_id` forbids outright (a raw `UniqueViolation`, not a
+        clean 200). Deleting `audit.record` itself would make
+        `find_by_operation` return `None` forever, so the pre-check branch
+        would never fire and this test would see the SAME failure mode.
+        Either way, this test's three assertions together close both
+        holes: `_count_orders == 1` catches a second upsert surviving at
+        all; `len(audit_rows) == 1` catches a second audit row (or the
+        absence of the one real write); `order_id` equality catches the
+        replay response fabricating a DIFFERENT id instead of handing back
+        the original.
+        """
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F88 Honest Replay Store"))
+            owner = _create_user(c, role="owner", password="f88-honest-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        order_id = _new_order_id("f88-honest")
+        op_id = _idempotency_key()
+        payload = [_order_payload(walmart_order_id=order_id, quantity=2, selling_amount="20.00")]
+
+        first = _import(client, token, store_id, payload, operation_id=op_id)
+        assert first.status_code == 201, first.text
+        first_order_id = first.json()["data"]["orders"][0]["order_id"]
+        assert first.json()["meta"]["replayed"] is False
+
+        second = _import(client, token, store_id, payload, operation_id=op_id)
+        assert second.status_code in (200, 201), second.text
+        assert second.json()["meta"]["replayed"] is True
+        second_order_id = second.json()["data"]["orders"][0]["order_id"]
+
+        # Same order, not a newly-created one.
+        assert second_order_id == first_order_id
+
+        # Exactly one row written, not two.
+        assert _count_orders(migrated_database, store_id, order_id) == 1
+
+        # Exactly one audit row for this operation_id -- proves
+        # `audit.record` actually ran on the first call (if it had been
+        # deleted, `find_by_operation` would never find a match and the
+        # second call would attempt a second upsert instead of replaying).
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+
+    def test_ac02_the_same_key_reused_against_a_different_store_is_a_conflict_not_a_replay(
+        self, client, migrated_database
+    ):
+        """F-88's sharpest case, the one that makes the `store_id` guard
+        inside `_check_import_replay_target` (`service.py:190-193`) load-
+        bearing rather than decorative. An `Idempotency-Key` spent on an
+        import into store X, reused on an import into store Y, must be
+        refused as a conflict (409) -- never silently replayed as if it
+        were a genuine write into Y (which would hand the caller store X's
+        order ids while writing nothing into Y, a success report for a
+        request that did not do what it said).
+
+        Mutation this catches: deleting the `if existing_event["store_id"]
+        != store_id` guard in `_check_import_replay_target` -- without it,
+        `audit.check_replay_target` alone is satisfied (same `event_type`,
+        same `entity_type`, `entity_id` is always `None` for a batch import,
+        so there is nothing else to disambiguate on), and this call would
+        return 200 with store X's results instead of 409.
+        """
+        with _committed(migrated_database) as c:
+            store_x = str(_create_store_db(c, "F88 Cross-Store Replay Store X"))
+            store_y = str(_create_store_db(c, "F88 Cross-Store Replay Store Y"))
+            owner = _create_user(c, role="owner", password="f88-crossstore-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        order_in_x = _new_order_id("f88-cross-x")
+        first = _import(
+            client, token, store_x, [_order_payload(walmart_order_id=order_in_x)], operation_id=op_id
+        )
+        assert first.status_code == 201, first.text
+
+        order_in_y = _new_order_id("f88-cross-y")
+        second = _import(
+            client, token, store_y, [_order_payload(walmart_order_id=order_in_y)], operation_id=op_id
+        )
+        assert second.status_code == 409, second.text
+
+        # Store Y's import must not have silently "succeeded" by replaying
+        # store X's result -- zero rows for the payload that was actually
+        # sent to Y.
+        assert _count_orders(migrated_database, store_y, order_in_y) == 0
+
+        audit_rows = _fetch_audit_rows(migrated_database, op_id)
+        assert len(audit_rows) == 1
+        assert str(audit_rows[0]["store_id"]) == store_x
+
+    def test_f88_a_key_spent_on_store_creation_cannot_be_replayed_as_an_import(
+        self, client, migrated_database
+    ):
+        """Pins the `event_type` arm of `audit.check_replay_target`
+        specifically for this entity: an Idempotency-Key already spent on
+        a `store_created` event (a completely different write, a
+        completely different entity_type) must be refused, not treated as
+        an import replay. `entity_id` alone cannot disambiguate a batch
+        import (it is always `None`), so this is the one test in this file
+        that proves `event_type`/`entity_type` -- not `entity_id` -- are
+        doing the disambiguating work for imports.
+        """
+        with _committed(migrated_database) as c:
+            owner = _create_user(c, role="owner", password="f88-crossop-owner-pw")
+            import_store_id = str(_create_store_db(c, "F88 Cross-Op Import Store"))
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        create_store = client.post(
+            "/stores",
+            json={
+                "name": "F88 Cross-Op Created Store",
+                "walmart_store_key": f"F88-CROSSOP-{uuid.uuid4().hex[:12]}",
+            },
+            headers={**_auth(token), "Idempotency-Key": op_id},
+        )
+        assert create_store.status_code == 201, create_store.text
+
+        order_id = _new_order_id("f88-crossop")
+        reused = _import(
+            client,
+            token,
+            import_store_id,
+            [_order_payload(walmart_order_id=order_id)],
+            operation_id=op_id,
+        )
+        assert reused.status_code == 409, reused.text
+        assert _fetch_order_row(migrated_database, import_store_id, order_id) is None
