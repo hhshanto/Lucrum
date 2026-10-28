@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lucrum — {{ store.name }} — Orders</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">Lucrum</div>
+  </header>
+  <main class="orders-list">
+    <h1>{{ store.name }} — Orders</h1>
+
+    <!--
+      US-005 AC-03 only (US-005b-2). Nothing below is a table of orders, a
+      filter, a date-basis label, a sort control, or pagination -- those are
+      US-006's, not started (see routes.py's own docstring for this view).
+    -->
+    <section class="import-freshness">
+      {% if never_imported %}
+      <p class="empty-state">No import has ever been run for this store.</p>
+      {% else %}
+        {% if last_success %}
+        <p class="import-last-success">
+          <time data-field="last-success-at" datetime="{{ last_success.iso }}">{{ last_success.text }}</time>
+        </p>
+        {% endif %}
+        {% if last_failure %}
+        <p class="import-last-failure">
+          <time data-field="last-import-failure" datetime="{{ last_failure.iso }}" role="alert">{{ last_failure.text }}</time>
+        </p>
+        {% endif %}
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

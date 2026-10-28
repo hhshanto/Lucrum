@@ -1,15 +1,18 @@
 """UI-01 — public landing page, sign-in screen, authenticated shell, sign-out.
+UI-04 — orders list screen, US-005b-2 (US-005 AC-03's screen half).
 
 HTML transport only. Every business rule reachable from here already exists
 and is already tested in ``src.access.service`` (``sign_in`` / ``authenticate``
-/ ``resolve_scope`` / ``sign_out``) and ``src.stores.repository``
-(``list_stores``) -- this module adds no new rule, only a browser-shaped way
-to reach the existing ones: a session cookie instead of an ``Authorization``
-header, and a redirect/re-render instead of a JSON error body. The same
-discipline ``main._authenticate_request``'s own docstring states ("two
-copies of an authentication gate diverge exactly as silently... the moment
-one of them picks up a fix") is why this module never re-implements password
-checking, lockout, MFA, or scope resolution -- it only calls them.
+/ ``resolve_scope`` / ``sign_out``), ``src.stores.repository``
+(``list_stores`` / ``get_store``) and ``src.orders.repository``
+(``get_import_run_state``) -- this module adds no new rule, only a
+browser-shaped way to reach the existing ones: a session cookie instead of
+an ``Authorization`` header, and a redirect/re-render instead of a JSON
+error body. The same discipline ``main._authenticate_request``'s own
+docstring states ("two copies of an authentication gate diverge exactly as
+silently... the moment one of them picks up a fix") is why this module
+never re-implements password checking, lockout, MFA, scope resolution, or
+import-state classification -- it only calls them.
 
 **Disclosed, narrow gap:** no test in ``tests/test_ui001_sign_in_screen.py``
 signs in as an Owner or Admin through this HTML form, and MFA entry for the
@@ -23,19 +26,39 @@ below exercises; an Owner/Admin signing in through the *browser* form today
 gets a generic "invalid" message instead of a prompt for their code. This is
 a deliberately undone piece of work, not a silent omission -- see the session
 report accompanying this change.
+
+**US-005b-2 -- the orders list screen (G-1, invented route/template/markup,
+``tests/test_us005b2_orders_list_screen.py`` module docstring).** This story
+is narrowly AC-03: the last successful import and the most recent failed
+attempt, both visible together, never one mislabelled as the other.
+Everything else UI-04's non-normative column-group description names
+(filters, date-basis label, sort, pagination, list-position restoration,
+and any actual order rows) is explicitly out of scope -- owned by US-006,
+not started. ``_render_instant`` below is presentation-only (an ISO-8601
+UTC instant for the machine-readable ``datetime`` attribute, a store-local
+rendering for the human-readable text, using ``src.clock`` exactly as
+``orders.service`` already does for ``order_date`` -- never a second,
+divergent timezone conversion). No business rule is decided here:
+"never imported" vs "last success" vs "most recent attempt's own status"
+all come from ``orders_repository.get_import_run_state`` unchanged; this
+module only chooses words and an HTML shape around those same three facts.
 """
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from src import clock
 from src.access import repository as access_repository
 from src.access import service as access_service
 from src.db.connection import connection
+from src.orders import repository as orders_repository
 from src.stores import repository as stores_repository
 
 router = APIRouter()
@@ -185,3 +208,100 @@ def sign_out(request: Request):
     response = RedirectResponse("/sign-in", status_code=303)
     response.delete_cookie(SESSION_COOKIE_NAME)
     return response
+
+
+def _render_instant(instant: datetime, timezone_name: str | None) -> tuple[str, str]:
+    """``(iso, human)`` for one stored instant.
+
+    ``iso`` is always the UTC instant itself (G-1 point 4's machine-readable
+    contract for the ``datetime`` attribute) -- this never varies with the
+    store's configured timezone, only the human-readable text does.
+
+    ``human`` converts to the store's own IANA timezone via
+    ``clock.store_timezone`` -- the SAME resolution ``orders.service`` already
+    uses for ``order_date``, not a second implementation. AGENTS.md's clock
+    discipline ("never guess") means a missing or invalid timezone is named
+    in the text, never silently presented as if the UTC instant were local.
+    """
+    utc_instant = clock.ensure_utc(instant)
+    iso = utc_instant.isoformat()
+    try:
+        local = utc_instant.astimezone(clock.store_timezone(timezone_name))
+    except clock.InvalidTimezone:
+        return iso, f"{iso} (store timezone not configured -- shown in UTC)"
+    return iso, local.strftime("%Y-%m-%d %H:%M %Z")
+
+
+@router.get("/app/stores/{store_id}/orders")
+def orders_list(request: Request, store_id: uuid.UUID):
+    """UI-04, US-005b-2 -- US-005 AC-03's screen half.
+
+    Renders exactly the three facts ``get_import_run_state`` already
+    classifies: never-imported, the last successful run's own instant, and
+    the most recent attempt's own status/instant -- never collapsed into
+    one combined "status" (AGENTS.md non-negotiable #1), and never falling
+    back to a stale success once a later attempt has failed (non-negotiable
+    #2's sibling rule for THIS dimension: AC-03's own "stale data is not
+    labeled current").
+
+    Store scope is store-scope-only (B-20, interim, unconfirmed --
+    ``get_import_run_state``'s own docstring). ``stores_repository.
+    get_store`` is called first, under the SAME scope, purely to read the
+    store's name/timezone for the page -- both calls raise the identical
+    ``OutOfScope`` for an unassigned OR a nonexistent store id (US-002 AC-02
+    discipline), which ``main.out_of_scope_handler`` already turns into a
+    404 indistinguishable between the two.
+    """
+    token = _cookie_token(request)
+    if not token:
+        return RedirectResponse("/sign-in", status_code=303)
+
+    with connection() as conn:
+        try:
+            session = access_service.authenticate(conn, token)
+            # Fresh on every request, never cached -- same discipline as
+            # `shell()` above.
+            scope = access_service.resolve_scope(conn, session.user_id)
+        except access_service.SessionInvalid:
+            return RedirectResponse("/sign-in", status_code=303)
+
+        store = stores_repository.get_store(conn, scope, store_id)
+        import_state = orders_repository.get_import_run_state(conn, scope, store_id)
+
+    last_success = None
+    if import_state["last_success_at"] is not None:
+        iso, human = _render_instant(import_state["last_success_at"], store["timezone"])
+        last_success = {
+            "iso": iso,
+            # Deliberately never says "current"/"fresh"/"up to date", in
+            # either state -- AC-03 forbids the stale case from claiming
+            # currency; the simplest way to never violate that is to never
+            # make the claim at all, so this text does not need to branch
+            # on whether the most recent attempt succeeded.
+            "text": f"Last successful import completed {human}.",
+        }
+
+    last_failure = None
+    if (
+        import_state["last_attempt_status"] is not None
+        and import_state["last_attempt_status"] != "completed"
+        and import_state["last_attempt_finished_at"] is not None
+    ):
+        iso, human = _render_instant(
+            import_state["last_attempt_finished_at"], store["timezone"]
+        )
+        last_failure = {
+            "iso": iso,
+            "text": f"The most recent import attempt failed {human}.",
+        }
+
+    return templates.TemplateResponse(
+        request,
+        "orders_list.html",
+        {
+            "store": store,
+            "never_imported": import_state["never_imported"],
+            "last_success": last_success,
+            "last_failure": last_failure,
+        },
+    )
