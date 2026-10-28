@@ -983,3 +983,60 @@ result type that carries *which* component is missing — BT-05 requires the
 missing component to be named, and no guardrail currently catches a call site
 that substitutes `Money.zero()`.
 
+---
+## US-008 -- enter buying cost per unit
+
+One implementer, no audit round (per the 2026-10-28 working-rules change —
+this story touches money but is the lower-risk costing-entry case, not the
+calculation service itself). Tests were already written
+(`tests/test_us008_buying_cost.py`, 16 tests) and the two currency/BR-02
+decisions already recorded in `DECISIONS.md` before this session started.
+
+**What shipped:** a new module `src/costing/` — `repository.py` (reads and
+writes on `order_cost_profiles`, scope composed into SQL, never fetch-then-
+check) and `service.py` (the `profit-v1` arithmetic for this one component:
+`src.money.Money` reused, never reimplemented, one half-up rounding applied
+independently to the stored per-unit value and to the total computed from
+the *unrounded* entered value — the test's own `1.005 x 3 = 3.02` case is
+exactly the double-rounding/float trap this proves it avoids). One
+migration, `006_order_cost_profiles.sql`, at the table's full documented
+shape (`database-schema.md:544-576`) — this story owns six columns
+(`id`, `order_id`, `currency_code`, `buying_cost_per_unit`,
+`buying_cost_per_unit_is_known_zero`, `quantity_snapshot`,
+`buying_cost_total`); the other nine (warehouse/third-party/other cost,
+`cost_completeness_code`, `record_revision`, `notes`,
+`created_by`/`updated_by`, `store_settings_version_applied`) exist at full
+shape, nullable or carrying only a non-monetary bookkeeping default, so a
+later story never has to `ALTER TABLE`. No HTTP endpoint — none of the four
+ACs names a screen and none exists yet to call one from; the test suite
+calls the service layer directly, by design.
+
+**Capability, disclosed rather than assumed:** `save_buying_cost` takes no
+`role` parameter. `walmart-user-stories.md:677` grants "enter and correct
+manual costs in an open period" to Owner, Admin **and** Manager — all three
+roles this system has (`users_role_check`, `002_access.sql`) — so there is
+no role this action could be `Forbidden` to, and adding a gate that always
+passes would be dead code pretending to be a decision. Store *scope* is
+still fully enforced, independently of that.
+
+**One test fails, not from a code defect.**
+`TestUS008UnassignedStoreIndistinguishableFromNonexistent` tries to create
+a fixture order in a store its own Manager was never assigned to, through
+the real `POST /imports/orders` — which correctly scope-checks and returns
+404 before the test's own body ever runs. The precedent this file's own
+sibling test (`test_us005b1_import_run_record.py`) uses for the identical
+scenario is a direct SQL insert into the unassigned store, bypassing the
+scoped import endpoint entirely — this test chose the HTTP path instead,
+which cannot succeed for an actor without that store's assignment. The
+invariant the test means to prove (out-of-scope and nonexistent orders are
+indistinguishable) is still exercised by the same test's second
+`pytest.raises(OutOfScope)` block (the nonexistent-id case) and is
+guaranteed by construction regardless: both cases run through the exact
+same scoped SQL in `costing/repository.py`'s `_scoped_order_with_profile`,
+with no code path that could tell them apart. Not fixed, because fixing it
+would mean editing the test — reported instead, per this project's own
+standing instruction.
+
+Full suite after this story: 346 passed / 4 skipped / 1 failed (the fixture
+bug above) of 351. Guardrail scan clean, 0 suppressions added.
+
