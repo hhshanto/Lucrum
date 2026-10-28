@@ -36,19 +36,26 @@ US-012, US-013, US-014, US-030, US-032. No slice-0 invariant is relaxed.
 
 ## Current position
 
-**US-008 (enter buying cost per unit) implemented.** New module
-`src/costing/` (`repository.py` + `service.py`) and migration `006` adding
-`order_cost_profiles` at full documented shape. 15 of its 16 tests pass;
-the 16th (`TestUS008UnassignedStoreIndistinguishableFromNonexistent`) has a
-fixture bug, not a code bug — it imports an order into a store the test's
-own Manager is never assigned to, through the real, correctly scope-checked
-`POST /imports/orders`, which rejects it with 404 before the test's own
-assertions run. The invariant it means to prove is still exercised in the
-same test (the nonexistent-order branch) and is structurally guaranteed by
-construction: both cases run through the identical scoped SQL in
-`costing/repository.py`, with no branch that could tell them apart. Full
-suite: 346 passed / 4 skipped / 1 failed (the fixture bug above) out of
-351. Guardrail scan clean, 0 suppressions.
+**US-008 (enter buying cost per unit) done and committed** at `7602318`.
+New module `src/costing/` (`repository.py` + `service.py`) and migration
+`006` adding `order_cost_profiles` at full documented shape. **16 of 16
+tests pass.** Full suite **347 passed / 4 skipped**, guardrail scan clean
+(34 files), 0 suppressions.
+
+The 16th test initially failed on a fixture bug — it built its
+"order in an unassigned store" precondition through the real,
+correctly scope-checked `POST /imports/orders`, which 404s before the
+assertions run. Fixed by test-author using the direct-SQL pattern its
+sibling `test_us005b1_import_run_record.py` already uses, and the
+indistinguishability assertion was **strengthened** while there: it now
+pins exception args, message, arity and `__cause__` on both branches,
+not just the exception type. Worth remembering as a pattern — building an
+out-of-scope precondition through a scope-checked endpoint cannot work.
+
+**Known product gap, not a defect:** US-008 is service-layer only. The
+spec puts cost entry on UI-05/UI-06, which belong to **US-007 (order
+detail)**, and US-007 is not built. So buying-cost logic currently has no
+screen to enter a number on.
 
 | Slice | Status |
 |---|---|
