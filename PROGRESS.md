@@ -38,20 +38,51 @@ precede implementation** -- that ordering is not part of the saving.
 
 ## Current position
 
-**US-005b-2 is done.** Route `GET /app/stores/{store_id}/orders` and
-template `src/templates/orders_list.html` implemented in
-`src/web/routes.py` only (no other module touched). All 5 tests in
-`tests/test_us005b2_orders_list_screen.py` pass; full suite 323 passed, 4
-skipped; scan clean, 29 files, 0 suppressions.
+**US-005b-2 is NOT done -- audited `fail` at `3054b97`, two blocking
+findings.** Route `GET /app/stores/{store_id}/orders` and template
+`src/templates/orders_list.html` exist in `src/web/routes.py`; all 5 tests
+pass, suite 323/4, scan clean. **Passing tests are not the verdict here --
+both findings are things the tests were structurally unable to catch.**
 
-Renders both facts B-22 requires: the run-level state from
-`get_import_run_state` (`import_batches`) drives both the last-success and
-last-failure elements; `orders.last_imported_at` was not separately needed
-once run-level state was read (the backend's own `last_success_at` already
-answers "the last successful update", per-run). B-20's interim rule
-(store-scope-only) is applied via `stores_repository.get_store` +
-`get_import_run_state`, both under the same `StoreScope` -- an unassigned
-store and a nonexistent one both 404 identically (test passes).
+*The previous version of this section claimed B-22 was satisfied. It was
+not. The claim is corrected below and left visible rather than deleted,
+because a progress record that quietly rewrites its own errors is worth
+less than one that shows them.*
+
+**F-100 (blocking) -- B-22 not implemented.** `DECISIONS.md` closed B-22
+as "render **both**" order-level (`orders.last_imported_at`) and run-level
+(`import_batches`) freshness. Only run-level is rendered.
+`orders.last_imported_at` is **never read anywhere in the codebase** --
+writes only (`orders/service.py:530`, `orders/repository.py:97,118`,
+`003_orders.sql:160`). No reader exists. The tests were deliberately
+written source-agnostic *before* B-22 was ruled, so they cannot detect
+this; once the Owner ruled "both", a source-specific assertion was owed
+and never added.
+**Root cause worth keeping:** order-level freshness cannot be read without
+a function in `orders/repository.py` -- outside this story's declared
+`routes.py`-only boundary. The ruling and the boundary were in direct
+collision, and the collision was resolved by silently narrowing the
+ruling. The correct move was to stop and report it. *Owner ruling on the
+collision is recorded in `DECISIONS.md` -- the boundary widens by exactly
+one read-only function; the ruling does not move.*
+
+**F-101 (blocking) -- `partial` is rendered as the word "failed".**
+`routes.py:286-295` flattens every non-`completed` status into one
+hardcoded word. `import_batches.status_code` has five values
+(`004_import_tracking.sql:48`) and the service deliberately computes a
+three-way outcome (`service.py:541-549`). A `partial` import *did* update
+most orders; calling it "failed" is a false statement about freshness, and
+it leaves the older `last-success-at` showing as the only success marker
+when a newer partial success exists -- both elements mislead at once. This
+becomes the common case the moment B-19/B-21 land, since both pin
+`partial` as the designed outcome. It also re-introduces at the call site
+exactly the collapsed boolean that `orders/repository.py:288-290` refuses
+to offer on purpose. Fix: render the status as its own value, plus a test
+covering a `partial` batch.
+
+B-20 passed cleanly: `stores_repository.get_store` raises an identical
+`OutOfScope` for unassigned and nonexistent at the same first query, 404
+for both, no timing or error-shape disclosure.
 
 **G-8 -- discovered, not fixed (out of this story's module boundary):**
 `orders.repository.get_import_run_state`'s `order by started_at desc` has

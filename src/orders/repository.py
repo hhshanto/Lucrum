@@ -35,6 +35,7 @@ __all__ = [
     "finish_import_batch",
     "insert_import_error",
     "get_import_run_state",
+    "get_order_level_freshness",
 ]
 
 
@@ -363,3 +364,60 @@ def get_import_run_state(
         "last_attempt_status": last_attempt["status_code"],
         "last_attempt_finished_at": last_attempt["finished_at"],
     }
+
+
+def get_order_level_freshness(
+    conn: psycopg.Connection,
+    scope: StoreScope,
+    store_id: uuid.UUID,
+) -> datetime | None:
+    """The most recent ``orders.last_imported_at`` instant for one store
+    (US-005b-2 F-100; B-22 closed "both", ``DECISIONS.md`` 2026-10-28).
+
+    Deliberately distinct from ``get_import_run_state``'s run-level
+    ``last_success_at`` above, and reads a DIFFERENT column of a DIFFERENT
+    table: this is the per-ORDER stamp ``upsert_order`` writes on every row
+    that actually lands, success or not, for every import attempt that
+    accepts it -- never ``import_batches``. A ``partial`` batch (B-19/B-21's
+    designed outcome: some rows accepted, one whole order rejected) still
+    advances the accepted rows' own ``last_imported_at``, even though only a
+    ``completed`` batch would ever advance ``get_import_run_state``'s
+    ``last_success_at``. Callers must not alias one for the other -- they
+    answer different questions and are expected to diverge.
+
+    Returns ``None`` when the store has never had a single ``orders`` row
+    written. This is UNKNOWN, never zero/epoch (AGENTS.md #4: "unknown is
+    not zero") -- there is no ``coalesce(..., some_default)`` here, by
+    design; an empty store renders no element for this fact at all, rather
+    than a fabricated instant.
+
+    Scope discipline is identical to ``get_import_run_state`` immediately
+    above, copied rather than factored out so this function's own ``WHERE``
+    stays self-contained: the predicate is composed into the SQL itself
+    (``stores`` + ``scope.sql_filter`` in a CTE), never checked in Python
+    after a row has already been fetched, so an unassigned store and a
+    nonexistent one raise the identical ``OutOfScope`` here too (F-22
+    discipline).
+    """
+    where, scope_params = scope.sql_filter("store_id")
+    scope_row = conn.execute(
+        f"""
+        with target_store as (
+            select id as store_id from stores where id = %(target_store_id)s
+        )
+        select store_id from target_store where {where}
+        """,
+        {**scope_params, "target_store_id": store_id},
+    ).fetchone()
+    if scope_row is None:
+        raise OutOfScope(str(store_id))
+
+    row = conn.execute(
+        """
+        select max(last_imported_at) as last_imported_at
+          from orders
+         where store_id = %(store_id)s
+        """,
+        {"store_id": store_id},
+    ).fetchone()
+    return row["last_imported_at"]

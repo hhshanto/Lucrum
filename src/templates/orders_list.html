@@ -27,11 +27,21 @@
           <time data-field="last-success-at" datetime="{{ last_success.iso }}">{{ last_success.text }}</time>
         </p>
         {% endif %}
+        {% if last_attempt_status %}
+        <p class="import-last-attempt-status">
+          <span data-field="last-attempt-status" data-status-code="{{ last_attempt_status.code }}">Most recent import attempt status: {{ last_attempt_status.code }}</span>
+        </p>
+        {% endif %}
         {% if last_failure %}
         <p class="import-last-failure">
           <time data-field="last-import-failure" datetime="{{ last_failure.iso }}" role="alert">{{ last_failure.text }}</time>
         </p>
         {% endif %}
+      {% endif %}
+      {% if order_level_freshness %}
+      <p class="order-last-imported">
+        <time data-field="order-last-imported-at" datetime="{{ order_level_freshness.iso }}">{{ order_level_freshness.text }}</time>
+      </p>
       {% endif %}
     </section>
   </main>

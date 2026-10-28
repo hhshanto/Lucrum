@@ -5,7 +5,8 @@ HTML transport only. Every business rule reachable from here already exists
 and is already tested in ``src.access.service`` (``sign_in`` / ``authenticate``
 / ``resolve_scope`` / ``sign_out``), ``src.stores.repository``
 (``list_stores`` / ``get_store``) and ``src.orders.repository``
-(``get_import_run_state``) -- this module adds no new rule, only a
+(``get_import_run_state``, ``get_order_level_freshness``) -- this module
+adds no new rule, only a
 browser-shaped way to reach the existing ones: a session cookie instead of
 an ``Authorization`` header, and a redirect/re-render instead of a JSON
 error body. The same discipline ``main._authenticate_request``'s own
@@ -42,6 +43,21 @@ divergent timezone conversion). No business rule is decided here:
 "never imported" vs "last success" vs "most recent attempt's own status"
 all come from ``orders_repository.get_import_run_state`` unchanged; this
 module only chooses words and an HTML shape around those same three facts.
+
+**F-100/F-101 (audit, same session, DECISIONS.md 2026-10-28, "both").**
+Two independent facts were added to the same view, neither replacing
+anything already here: (1) ``orders_repository.get_order_level_freshness``
+-- a SECOND, independent read of ``orders.last_imported_at`` (per-ORDER,
+never derived from ``import_batches``) rendered as its own element,
+alongside (never instead of) the run-level facts above; (2) the most
+recent attempt's raw ``status_code`` is now rendered verbatim in its own
+element for every status (``last_attempt_status`` below) and the
+``last-import-failure`` element is now gated on the status being
+LITERALLY ``"failed"`` (previously any non-``"completed"`` status,
+which wrongly rendered a ``partial`` outcome -- most rows succeeded -- as
+"failed"). The ``failed``-vs-``partial`` TRANSITION rule (G-7, which
+batches become which) is still open and is not decided here; only that
+whichever raw value a batch actually has is the value rendered.
 """
 
 from __future__ import annotations
@@ -236,21 +252,25 @@ def _render_instant(instant: datetime, timezone_name: str | None) -> tuple[str, 
 def orders_list(request: Request, store_id: uuid.UUID):
     """UI-04, US-005b-2 -- US-005 AC-03's screen half.
 
-    Renders exactly the three facts ``get_import_run_state`` already
-    classifies: never-imported, the last successful run's own instant, and
-    the most recent attempt's own status/instant -- never collapsed into
-    one combined "status" (AGENTS.md non-negotiable #1), and never falling
-    back to a stale success once a later attempt has failed (non-negotiable
-    #2's sibling rule for THIS dimension: AC-03's own "stale data is not
-    labeled current").
+    Renders the facts ``get_import_run_state`` classifies: never-imported,
+    the last successful run's own instant, and the most recent attempt's
+    own status/instant -- never collapsed into one combined "status"
+    (AGENTS.md non-negotiable #1), and never falling back to a stale
+    success once a later attempt has failed (non-negotiable #2's sibling
+    rule for THIS dimension: AC-03's own "stale data is not labeled
+    current"). Alongside those, a SECOND, independent read --
+    ``get_order_level_freshness`` -- supplies the per-ORDER freshness fact
+    (B-22 closed "both", DECISIONS.md 2026-10-28): the two are never
+    substituted for one another, and are expected to genuinely diverge
+    once a `partial` batch (B-19/B-21) has run.
 
     Store scope is store-scope-only (B-20, interim, unconfirmed --
     ``get_import_run_state``'s own docstring). ``stores_repository.
     get_store`` is called first, under the SAME scope, purely to read the
-    store's name/timezone for the page -- both calls raise the identical
-    ``OutOfScope`` for an unassigned OR a nonexistent store id (US-002 AC-02
-    discipline), which ``main.out_of_scope_handler`` already turns into a
-    404 indistinguishable between the two.
+    store's name/timezone for the page -- all three reads raise the
+    identical ``OutOfScope`` for an unassigned OR a nonexistent store id
+    (US-002 AC-02 discipline), which ``main.out_of_scope_handler`` already
+    turns into a 404 indistinguishable between the two.
     """
     token = _cookie_token(request)
     if not token:
@@ -267,6 +287,15 @@ def orders_list(request: Request, store_id: uuid.UUID):
 
         store = stores_repository.get_store(conn, scope, store_id)
         import_state = orders_repository.get_import_run_state(conn, scope, store_id)
+        # F-100 (B-22 closed "both", DECISIONS.md 2026-10-28): order-level
+        # freshness is a SECOND, independent read -- never derived from
+        # `import_state` above. It answers "when was this store's own
+        # order data last written", not "when did a run last succeed";
+        # the two are expected to diverge for a `partial` batch, so one is
+        # never substituted for the other.
+        order_level_last_imported_at = orders_repository.get_order_level_freshness(
+            conn, scope, store_id
+        )
 
     last_success = None
     if import_state["last_success_at"] is not None:
@@ -281,10 +310,18 @@ def orders_list(request: Request, store_id: uuid.UUID):
             "text": f"Last successful import completed {human}.",
         }
 
+    # F-101 (G-7 partially closed, DECISIONS.md 2026-10-28): the raw
+    # `status_code` is rendered as its OWN value, verbatim, for every
+    # status, not flattened to an invented word. The `last-import-failure`
+    # element below is reserved for a status that is LITERALLY `failed` --
+    # a `partial` outcome (most rows succeeded) is never routed through it.
+    last_attempt_status = None
+    if import_state["last_attempt_status"] is not None:
+        last_attempt_status = {"code": import_state["last_attempt_status"]}
+
     last_failure = None
     if (
-        import_state["last_attempt_status"] is not None
-        and import_state["last_attempt_status"] != "completed"
+        import_state["last_attempt_status"] == "failed"
         and import_state["last_attempt_finished_at"] is not None
     ):
         iso, human = _render_instant(
@@ -295,6 +332,14 @@ def orders_list(request: Request, store_id: uuid.UUID):
             "text": f"The most recent import attempt failed {human}.",
         }
 
+    order_level_freshness = None
+    if order_level_last_imported_at is not None:
+        iso, human = _render_instant(order_level_last_imported_at, store["timezone"])
+        order_level_freshness = {
+            "iso": iso,
+            "text": f"Most recent order data imported {human}.",
+        }
+
     return templates.TemplateResponse(
         request,
         "orders_list.html",
@@ -303,5 +348,7 @@ def orders_list(request: Request, store_id: uuid.UUID):
             "never_imported": import_state["never_imported"],
             "last_success": last_success,
             "last_failure": last_failure,
+            "last_attempt_status": last_attempt_status,
+            "order_level_freshness": order_level_freshness,
         },
     )
