@@ -38,51 +38,55 @@ precede implementation** -- that ordering is not part of the saving.
 
 ## Current position
 
-**US-005b-2 is NOT done -- audited `fail` at `3054b97`, two blocking
-findings.** Route `GET /app/stores/{store_id}/orders` and template
-`src/templates/orders_list.html` exist in `src/web/routes.py`; all 5 tests
-pass, suite 323/4, scan clean. **Passing tests are not the verdict here --
-both findings are things the tests were structurally unable to catch.**
+**US-005b-2 is done.** Audited **pass-with-findings** at `3a81b7a`, no
+blocking findings, after a first audit returned **fail** at `3054b97`.
+7 story tests, suite 325 passed / 4 skipped, scan clean, 0 suppressions.
+Route `GET /app/stores/{store_id}/orders`, template
+`src/templates/orders_list.html`, plus one read-only
+`get_order_level_freshness` in `orders/repository.py`.
 
-*The previous version of this section claimed B-22 was satisfied. It was
-not. The claim is corrected below and left visible rather than deleted,
-because a progress record that quietly rewrites its own errors is worth
-less than one that shows them.*
+**AC-03 is now complete** -- the backend half landed in US-005b-1, the
+screen half here.
 
-**F-100 (blocking) -- B-22 not implemented.** `DECISIONS.md` closed B-22
-as "render **both**" order-level (`orders.last_imported_at`) and run-level
-(`import_batches`) freshness. Only run-level is rendered.
-`orders.last_imported_at` is **never read anywhere in the codebase** --
-writes only (`orders/service.py:530`, `orders/repository.py:97,118`,
-`003_orders.sql:160`). No reader exists. The tests were deliberately
-written source-agnostic *before* B-22 was ruled, so they cannot detect
-this; once the Owner ruled "both", a source-specific assertion was owed
-and never added.
-**Root cause worth keeping:** order-level freshness cannot be read without
-a function in `orders/repository.py` -- outside this story's declared
-`routes.py`-only boundary. The ruling and the boundary were in direct
-collision, and the collision was resolved by silently narrowing the
-ruling. The correct move was to stop and report it. *Owner ruling on the
-collision is recorded in `DECISIONS.md` -- the boundary widens by exactly
-one read-only function; the ruling does not move.*
+*The first audit is kept visible below rather than deleted. A progress
+record that quietly rewrites its own errors is worth less than one that
+shows them -- and both findings were things the passing tests were
+structurally unable to catch, which is the reusable lesson.*
 
-**F-101 (blocking) -- `partial` is rendered as the word "failed".**
-`routes.py:286-295` flattens every non-`completed` status into one
-hardcoded word. `import_batches.status_code` has five values
-(`004_import_tracking.sql:48`) and the service deliberately computes a
-three-way outcome (`service.py:541-549`). A `partial` import *did* update
-most orders; calling it "failed" is a false statement about freshness, and
-it leaves the older `last-success-at` showing as the only success marker
-when a newer partial success exists -- both elements mislead at once. This
-becomes the common case the moment B-19/B-21 land, since both pin
-`partial` as the designed outcome. It also re-introduces at the call site
-exactly the collapsed boolean that `orders/repository.py:288-290` refuses
-to offer on purpose. Fix: render the status as its own value, plus a test
-covering a `partial` batch.
+**F-100 (was blocking, now closed) -- B-22 was not implemented.**
+`DECISIONS.md` closed B-22 as "render **both**" order-level
+(`orders.last_imported_at`) and run-level (`import_batches`) freshness.
+Only run-level was rendered; `orders.last_imported_at` had **no reader
+anywhere in the codebase**. The tests were deliberately written
+source-agnostic *before* B-22 was ruled, so they could not detect it; once
+the Owner ruled "both", a source-specific assertion was owed and was never
+added. **Root cause worth keeping:** order-level freshness cannot be read
+without a function in `orders/repository.py` -- outside this story's
+declared `routes.py`-only boundary. The ruling and the boundary were in
+direct collision, and the collision was resolved by silently narrowing the
+ruling. The correct move was to stop and report it. Owner ruling, now
+standing: **the boundary widens, the ruling does not move** -- and when a
+ruling and a boundary collide, stop and report rather than reinterpret.
 
-B-20 passed cleanly: `stores_repository.get_store` raises an identical
-`OutOfScope` for unassigned and nonexistent at the same first query, 404
-for both, no timing or error-shape disclosure.
+**F-101 (was blocking, now closed) -- `partial` was rendered as "failed".**
+The route flattened every non-`completed` status into one hardcoded word,
+though `import_batches.status_code` has five values and the service
+deliberately computes a three-way outcome. A `partial` import *did* update
+most orders. Status is now rendered verbatim and `last-import-failure` is
+gated on `"failed"` literally. Unplanned gain: a `failed` batch with a
+NULL `finished_at` used to vanish from the page entirely and now surfaces.
+
+B-20 passed cleanly both times: identical `OutOfScope` for unassigned and
+nonexistent at the same first query, 404 for both, no timing or
+error-shape disclosure. The new `get_order_level_freshness` composes the
+same `StoreScope` into SQL and was checked on the same basis.
+
+**Open non-blocking findings, none urgent:** N-02/N-03 -- two unpinned
+behaviours (`last-attempt-status` present for `completed`;
+`order-last-imported-at` absent for a store with zero orders). Both are
+correct in code but no test holds them, so a plausible future tidy-up
+would silently reintroduce F-101. Worth one cheap test each next time this
+file is open.
 
 **G-8 -- discovered, not fixed (out of this story's module boundary):**
 `orders.repository.get_import_run_state`'s `order by started_at desc` has
@@ -142,6 +146,20 @@ golden set) follows slice 5 into deferral.
 
 ## Carried notes
 
+- **G-8 is now the top of the queue, and worse than first recorded.**
+  `get_import_run_state`'s `order by started_at desc` has no tiebreaker;
+  on Windows two `import_batches` rows can share a microsecond and
+  Postgres's tie order is undefined. Observed failing roughly **1 run in
+  4-5**, across *two* test files including already-merged
+  `test_us005b1_import_run_record.py`. Worse (N-05): the new test helper
+  `_latest_batch_status` orders by `started_at desc, id desc` -- a
+  **different tiebreaker than production** -- so under a tie the fixture
+  can assert one batch while production reads the other, making the
+  failure surface as a wrong rendered status rather than as the real
+  cause. A 1-in-5 flaky suite means "suite green" stops being evidence,
+  which undermines every audit after it. Fix in `orders/repository.py`
+  (secondary `order by ..., id desc`, or a monotonic batch sequence),
+  test-first, and align the helper to production's ordering.
 - **G-7** -- `failed` vs `partial` batch classification has no documented
   transition rule. B-19/B-21 now pin `partial` for flagged-aside cases;
   the rest stays unpinned.
