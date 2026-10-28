@@ -809,72 +809,82 @@ that substitutes `Money.zero()`.
 
 ## Next action
 
-**US-005a is implemented and audited to a pass (`663eaae`).** Slice 2 (Orders)
-is open. **A spec-oracle brief for US-005b (AC-03, import run visibility and
-freshness) has been produced this session and surfaced seven open items
-(G-1...G-7) -- see the "US-005b" findings below. Test-author has not yet been
-run.** Before handing to test-author, at least two of the seven need a call:
-which reading of "the list" to build against (G-5, resolvable by the
-narrowest supportable reading -- the orders list, UI-04, by analogy to
-US-006 AC-03's identical phrase), and whether AC-03 is satisfiable API-only
-or requires a rendered screen (G-6, a genuine judgement call, flagged rather
-than decided alone because it's a bigger scope commitment than the other
-five).
+**CHECKPOINT, 2026-10-28. Session stopped here deliberately -- "this one got
+bigger," start the next session fresh rather than pushing on.** Working
+tree is clean, everything below is committed (`f13ba5c`), suite green
+(295 passed, 3 skipped), scanner clean (28 files, 0 suppressions).
 
-**US-005c (AC-04-08, posting-period assignment) cannot start** until **B-17**
-is answered -- nobody owns accounting-month provisioning, confirmed by
-exhaustive search across every story in the document, not inferred. The
-slice plan assigns "the month provisioning job" to slice 2 but no
-acceptance criterion anywhere builds it. This needs a new US-id or an
-explicit amendment naming an existing story **before** US-005c is attempted,
-or US-005c will consume accounting months it has no way to create even for
-its own tests.
+**Exact next step, not yet started: re-run `spec-oracle` for US-005b before
+`test-author`.** The brief on file (see the "US-005b" section below) answered
+G-1 through G-7, but two of them were left for the Owner rather than decided
+-- **both are now decided** and change the brief's own conclusions enough
+that it needs a fresh pass, not a patch:
 
-**B-3 (`.env` credentials) is closed.** You renamed the two misnamed lines;
-I verified the file directly rather than trusting the claim, found one
-remaining issue (a stale, pre-existing `WALMART_SECRET_KEY` duplicate,
-silently shadowed by `python-dotenv`'s last-wins resolution, confirmed
-empirically), removed it, and confirmed the resolved values were unchanged.
-**`walmart-probe` then ran successfully against the live API** -- `200` from
-Walmart's token endpoint, a full fixture-recording pass (19 fixtures, 2
-field-map docs under `docs/walmart/`), independently spot-checked for PII
-leakage before accepting the result rather than trusting the probe's own
-redaction claim. See **B-18**, below, for the one serious finding that came
-out of it -- a live contradiction with a guardrail-enforced invariant, not
-a routine fixture-recording outcome. **A near-miss was also caught and
-reverted**: live credentials had been pasted into the tracked `.env.example`
-template (never meant to hold real secrets -- its own line 1 says so),
-uncommitted, caught before `git add`, reverted cleanly with
-`git checkout -- .env.example`.
+- **G-6 (screen vs API-only): decided -- build a real rendered screen.**
+  "Screen would be fine. I wanna see things and interact." This is the
+  first slice-2 story to build a screen as part of its own scope (every
+  earlier slice-1/2 story deferred rendering to a dedicated UI story, e.g.
+  UI-01). G-5 ("which list") is resolved by the same answer: the orders
+  list, UI-04.
+- **B-18 (the multi-SKU contradiction): decided -- reject the whole order
+  at import time, never split, never partially imported, and the rejection
+  must be visible, not a silent skip.** This was flagged as a live defect in
+  US-005a's own already-audited, already-merged code
+  (`src/orders/service.py`), not a US-005b design question -- the
+  `(store_id, walmart_order_id)` upsert key has no SKU component, so two
+  lines sharing one `purchaseOrderId` would silently overwrite one another
+  today. **"Flag it somewhere" and AC-03's "failure ... visible" turn out to
+  need the same infrastructure** -- a durable, visible record of an
+  import-time problem (`import_batches`/`import_errors`,
+  `database-schema.md:965-998`, specified but never migrated -- see G-1/G-2
+  in the US-005b section). Building both together, sharing one migration,
+  is deliberate, not scope creep: confirm this reasoning holds before
+  committing to it.
 
-**B-18, new: a live Walmart order contradicts BR-02 / SC-09 / DB-07.** One
-real order (of 587 pulled) has two order lines, two distinct SKUs, two
-independent charge sets, under a single `purchaseOrderId` -- ordinary and
-well-formed on Walmart's side. This is a genuine specification-vs-reality
-contradiction, not a gap with a narrow reading, so no interim ruling was
-applied, unlike B-9/B-13/B-15. It bears directly on US-005a's own order-
-identity key (`(store_id, walmart_order_id)`, no SKU component) -- a naive
-mapping of this exact order would silently overwrite one product's entire
-record with the other's. Full detail in the blockers table and in
-`docs/walmart/orders-v3.md:208-237`. **This does not block US-005b**
-(AC-03 is about import-run visibility, not order identity), but it should
-be resolved before any live-Walmart-API ingestion path is built, and it
-calls into question whether US-005a's uniqueness constraint is already
-incomplete for real data -- worth the Owner's attention sooner rather than
-later, not filed away for slice 3.
+**What the next session's spec-oracle call needs to resolve, specifically:**
+1. Exact design for detecting a multi-SKU conflict -- both within one
+   import batch (two `OrderImportItem`s, same `walmart_order_id`, different
+   `sku`) and across repeated imports (a new item's `sku` disagreeing with
+   an existing row's). The current code only has the first shape to protect
+   against; the second is equally real and currently equally unprotected.
+2. What "visible" concretely resolves to -- an `import_errors` row surfaced
+   on the UI-04 orders list screen is the leading candidate, not yet
+   confirmed against any doc citation.
+3. Whether this is still one story (US-005b, now carrying both the screen
+   and the B-18 fix) or needs splitting -- it touches `src/orders/` (backend
+   logic, a revision to already-merged US-005a code) and a new `src/web/` +
+   `src/templates/` surface (the screen itself). Two modules, but one AC
+   requires both; previous splits (US-002, US-005 itself) were triggered by
+   genuinely separable concerns, not by touching two directories as such.
+   Decide this once the brief is back, the way US-002/US-005's splits were
+   decided after their own spec-oracle briefs, not before.
+
+**Do not skip straight to test-author.** The existing seven-item brief is a
+good foundation but was written before either decision landed; at minimum
+G-5/G-6's answers and the B-18 fix's design need folding in before a test
+is written against them.
+
+**US-005c (AC-04-08, posting-period assignment) still cannot start** until
+**B-17** is answered -- nobody owns accounting-month provisioning, confirmed
+by exhaustive search across every story in the document, not inferred.
+Needs a new US-id or an explicit amendment naming an existing story.
+
+**B-3 (`.env` credentials) is closed, verified against the live API.** Full
+account in the "US-005a" section below and the Decisions log. One near-miss
+caught and reverted in the process: real credentials had briefly landed in
+the tracked `.env.example` template, caught before `git add`.
 
 **Slice 1 is still not fully closable** -- B-5 (deployment) and B-10 through
 B-15 remain open Owner one-liners. None of them block slice 2's code.
 
-**Process, held for a third story running this session:** two audit passes.
-US-005a's pass 1 failed on two blocking findings (F-88, F-89); the fix round
-touched only the test file, verified independently (`git diff --stat`, full
-suite, scanner) before requesting pass 2, which passed. **One process note
-from the auditor itself (F-94, a repeat of F-18):** the implementation was
-still uncommitted when pass 2 ran, so "unchanged since pass 1" was verified
-by line-anchor inspection rather than `git diff` -- strong but not
-equivalent evidence. **Commit before requesting a second audit pass**,
-every time, not just when remembered.
+**Process note carried forward:** commit before requesting a second audit
+pass, every time (F-94/F-18's lesson, repeated three times now across
+US-002a, US-005a). Also carried: when a fix touches already-merged,
+already-audited code from an earlier story (as the B-18 fix will, in
+`src/orders/service.py`), that is not exempt from the same pipeline --
+spec-oracle, a failing test first, implementation, then an audit pass --
+even though the story itself (US-005a) is closed. The code is not closed;
+the story's audit was a verdict on a point in time.
 
 Carried from slice 0, now discharged: step 5 was demonstrated 2026-10-24.
 
