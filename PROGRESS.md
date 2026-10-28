@@ -15,9 +15,57 @@ Full account in its own section below, ahead of slice 0.
 
 **Slice 0: COMPLETE** -- the step 5 guardrail proof was demonstrated 2026-10-24 (see below). **Slice 1:** US-001 done and audited. US-002 split; US-002a implemented, audited and committed (`10b6fda`) -- closable once the Owner pastes the B-7 amendment into `docs/` (B-10). US-003 implemented and audited through to a pass (`cda7b0e`); not fully closable -- AC-02's third clause is blocked on B-11 and the story carries B-12, B-13, B-14. **US-004 implemented and audited to a clean pass** (`a9ea6aa`, two audit rounds, both verified independently rather than on reported counts) -- all four ACs covered by a passing test; carries B-15 (new) plus eight non-blocking engineering carry-forwards (F-73...F-81). **All four of slice 1's stories now exist in code and are audited.** The slice itself is not "done" by this project's own definition (every AC passing + guardrail green + **deployed**) -- B-5 (no deployment target chosen) is still open, and B-10/11/12/13/14/15 remain Owner items.
 
+**This session: `.env` credentials fixed and verified against the live
+Walmart API (B-3 closed); `walmart-probe` completed a full recording pass
+and surfaced one serious new contradiction (B-18 -- a real order violates
+BR-02's "one SKU per order" guardrail). A spec-oracle brief for US-005b
+was also produced and returned seven open items (G-1...G-7), two of which
+are judgement calls rather than clean reads. Full detail in the "US-005b"
+section below and in the blockers table.**
+
 **A second, unrelated item surfaced mid-session:** an uncommitted test file (`tests/test_ui001_sign_in_screen.py`) and an untracked root-level `theme.txt` were found sitting in the tree from an apparently-interrupted prior session. `theme.txt` read as a binding "design-system contract" (exact hex palette, Google Fonts, mandatory SVG grain overlay, pill buttons, arch imagery) that **contradicted** `docs/walmart-store-manager-design.md`'s own UX baseline. Escalated as **B-16** rather than built on, deleted, or silently rewritten. **The Owner closed it the same session**: `theme.txt` is intentional for this project but advisory only -- "the idea and inspiration," not a literal palette/font/technique requirement, and does not override the data-dense/sober baseline. See the Decisions log.
 
 **UI-01 (sign-in screen and authenticated shell) built on the strength of that ruling.** The test file was revised first (test-author, before any implementation) to drop every literal-`theme.txt`-value assertion and replace it with the underlying theme-agnostic engineering/accessibility property instead (a real WCAG contrast floor, token-declared-once discipline, independently-settable heading/body typography) -- committed `a1b61c7`. The screen was then implemented against that revision (`src/templates/`, `src/static/css/app.css`, `src/web/routes.py`, committed `fd2b0fe`) and audited to a **clean pass on the first round** -- no blocking findings, no fix round needed. **34 passed, 1 skipped** (F-13, unchanged) against that file alone, **262 passed, 3 skipped** for the full suite, guardrail scan clean (24 files, 0 suppressions). No new business rule was implemented -- every route calls `access_service.sign_in` / `authenticate` / `resolve_scope` / `sign_out` and `stores_repository.list_stores` exactly as the JSON API already does, through a cookie instead of a bearer header. Full detail below, in its own "UI-01" section ahead of US-004.
+
+---
+
+## US-005b -- import run visibility and freshness (spec-oracle brief only, step 1 of 4)
+
+AC-03 only: "Given a failed refresh, when viewing the list, then the last
+successful update and failure are visible; stale data is not labeled
+current" (`walmart-user-stories.md:791`). `spec-oracle` ran once, reused
+nothing from the US-005a brief (this is a distinct AC with its own schema
+surface), and returned a genuinely open brief rather than a clean one --
+seven items, not forced into a false resolution.
+
+**What exists already, confirmed against the running code, not assumed:**
+`orders.last_imported_at` (`database-schema.md:454`, explicitly cited to
+this AC) is already a column, already populated on every import by
+US-005a's service (`src/orders/service.py:264`). The "last successful
+update" half of AC-03 already has its data source. The "failure ...
+visible" half does not: `import_batches`/`import_errors`
+(`database-schema.md:965-998`) are fully specified in the schema document
+but **no migration has ever created them** -- confirmed by search, zero
+hits in `src/`.
+
+**Seven gaps, none filled by inference:**
+
+| # | Gap | Resolution path |
+|---|---|---|
+| G-1 | No endpoint lists import batches by store ("most recent run for store X"). `GET /imports/orders/{batchId}` (`api-service-design.md:820`) needs an id the caller must already hold -- a user viewing the list later has no documented way to get one. | Engineering gap, not a business rule; build what's needed, disclose the invented shape, same posture as B-12's `store_created` event name. |
+| G-2 | No audit event type exists for an import batch's completion, failure, or partial result (checked all 19 rows of the catalogue, `api-service-design.md:1182-1209`). | Same as G-1 -- invent, disclose, confirm later. |
+| G-3 | No capability-matrix row says who may *view* import history, distinct from who may *trigger* an import (`:674`, Yes/Yes/Yes -- a different question). | Same shape as B-13/B-15 -- apply the narrowest-reading interim ruling, log as a new blocker. |
+| G-4 | No staleness threshold or freshness policy value exists anywhere (no `period-v1` clause, no policy table, exhaustive grep empty). | Not actually blocking: AC-03's own text only requires "not labeled current" after a failure, not a computed time-based stale/fresh boolean. Satisfiable without inventing a threshold. |
+| G-5 | "The list" in AC-03's own sentence is not pinned to a screen or endpoint. | Resolvable by the narrowest supportable reading -- the orders list (UI-04), by analogy to US-006 AC-03's identical phrase (`:807`) -- not a document statement, a judgement call, disclosed as such. |
+| G-6 | Whether AC-03 is satisfiable API-only (the precedent every story since US-002a has used) or requires a rendered screen -- its phrasing ("when viewing the list") reads more UI-shaped than any prior story's AC language did. | **Not resolved by the brief itself, deliberately** -- bigger scope commitment than the other six, flagged for a call before test-author runs. |
+| G-7 | `import_batches.status_code` (`pending`/`processing`/`completed`/`failed`/`partial`) has no documented transition rule -- what makes a batch `failed` vs `partial` is unspecified. | Needed before a test fixture can deterministically produce "a failed refresh" (AC-03's own Given clause). Narrow it for this story: a batch that raises before any row is written is `failed`; anything else is out of scope for AC-03 specifically. |
+
+**Status: step 1 of 4 complete, test-author not yet run.** Two calls (G-5,
+G-6) are judgement calls serious enough that they're surfaced to the Owner
+rather than folded into "the implementer's reasoned discretion" the way
+G-1/G-2/G-7 are -- G-6 in particular changes how big this story is (API
+response shape only, vs. a rendered orders-list screen, which no earlier
+slice-2 story has built).
 
 ---
 
@@ -762,10 +810,16 @@ that substitutes `Money.zero()`.
 ## Next action
 
 **US-005a is implemented and audited to a pass (`663eaae`).** Slice 2 (Orders)
-is open. **US-005b (AC-03, import run visibility and freshness) is next** --
-the spec-oracle brief already covers it (same call that covered 005a), so
-step 1 can likely be skipped or kept very short rather than re-run from
-scratch; reuse the citations already gathered this session.
+is open. **A spec-oracle brief for US-005b (AC-03, import run visibility and
+freshness) has been produced this session and surfaced seven open items
+(G-1...G-7) -- see the "US-005b" findings below. Test-author has not yet been
+run.** Before handing to test-author, at least two of the seven need a call:
+which reading of "the list" to build against (G-5, resolvable by the
+narrowest supportable reading -- the orders list, UI-04, by analogy to
+US-006 AC-03's identical phrase), and whether AC-03 is satisfiable API-only
+or requires a rendered screen (G-6, a genuine judgement call, flagged rather
+than decided alone because it's a bigger scope commitment than the other
+five).
 
 **US-005c (AC-04-08, posting-period assignment) cannot start** until **B-17**
 is answered -- nobody owns accounting-month provisioning, confirmed by
@@ -776,13 +830,38 @@ explicit amendment naming an existing story **before** US-005c is attempted,
 or US-005c will consume accounting months it has no way to create even for
 its own tests.
 
-**`.env`'s Walmart credentials are still not usable, for a new reason.**
-`WALMART_CLIENT_ID` was added this session, but under the wrong variable
-name (`clientID`, not `WALMART_CLIENT_ID`) and alongside a `clientSecret`
-value that contradicts the pre-existing `WALMART_SECRET_KEY` line -- two
-different secrets now sit in the file under two different names. See **B-3**
-in the blockers table for the exact fix needed. `walmart-probe` has not been
-re-run; it would fail the same way it did before, for a different reason.
+**B-3 (`.env` credentials) is closed.** You renamed the two misnamed lines;
+I verified the file directly rather than trusting the claim, found one
+remaining issue (a stale, pre-existing `WALMART_SECRET_KEY` duplicate,
+silently shadowed by `python-dotenv`'s last-wins resolution, confirmed
+empirically), removed it, and confirmed the resolved values were unchanged.
+**`walmart-probe` then ran successfully against the live API** -- `200` from
+Walmart's token endpoint, a full fixture-recording pass (19 fixtures, 2
+field-map docs under `docs/walmart/`), independently spot-checked for PII
+leakage before accepting the result rather than trusting the probe's own
+redaction claim. See **B-18**, below, for the one serious finding that came
+out of it -- a live contradiction with a guardrail-enforced invariant, not
+a routine fixture-recording outcome. **A near-miss was also caught and
+reverted**: live credentials had been pasted into the tracked `.env.example`
+template (never meant to hold real secrets -- its own line 1 says so),
+uncommitted, caught before `git add`, reverted cleanly with
+`git checkout -- .env.example`.
+
+**B-18, new: a live Walmart order contradicts BR-02 / SC-09 / DB-07.** One
+real order (of 587 pulled) has two order lines, two distinct SKUs, two
+independent charge sets, under a single `purchaseOrderId` -- ordinary and
+well-formed on Walmart's side. This is a genuine specification-vs-reality
+contradiction, not a gap with a narrow reading, so no interim ruling was
+applied, unlike B-9/B-13/B-15. It bears directly on US-005a's own order-
+identity key (`(store_id, walmart_order_id)`, no SKU component) -- a naive
+mapping of this exact order would silently overwrite one product's entire
+record with the other's. Full detail in the blockers table and in
+`docs/walmart/orders-v3.md:208-237`. **This does not block US-005b**
+(AC-03 is about import-run visibility, not order identity), but it should
+be resolved before any live-Walmart-API ingestion path is built, and it
+calls into question whether US-005a's uniqueness constraint is already
+incomplete for real data -- worth the Owner's attention sooner rather than
+later, not filed away for slice 3.
 
 **Slice 1 is still not fully closable** -- B-5 (deployment) and B-10 through
 B-15 remain open Owner one-liners. None of them block slice 2's code.
@@ -820,9 +899,9 @@ Full contents and per-slice traps: `docs/walmart-slice-plan.md`.
 | # | Blocker | Blocks | Owner |
 |---|---|---|---|
 | ~~B-1~~ | ~~Golden orders~~ | ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â | **Closed 2026-10-23.** 20 real cases loaded and verified |
-| B-2 | C-01 settlement category mappings empty | Slice 4 commit | `walmart-probe` against the live store |
-| B-3 | **C-02 supported report catalogue empty — and the probe still cannot run, now for a third reason.** `WALMART_CLIENT_ID` was pasted into `.env`, but **under the wrong name** (`clientID`, not `WALMART_CLIENT_ID` — `.env.example:21` and all app code use the latter; nothing reads `clientID`/`clientSecret`) **and alongside a `clientSecret` value that does not match the pre-existing `WALMART_SECRET_KEY` line.** Two different secrets now sit in the file under two different names. I verified this by reading the raw file, not by re-trusting the claim it was fixed — the previous round's mistake. Not resolved by me: guessing which secret pairs with the new Client ID, without knowing which portal screen either came from, is exactly the guess this project exists to avoid | Slice 2 import, slice 4, **and C-01/B-2** | **You** — rename to `WALMART_CLIENT_ID`/`WALMART_SECRET_KEY`, and confirm which secret is current (delete the stale one) |
-| B-17 | **Nobody owns accounting-month provisioning.** `walmart-slice-plan.md:106` assigns "the month provisioning job" to slice 2. `api-service-design.md:266` makes `POST /months/provision` the **only** way a month comes into existence, and D-09 (`walmart-user-stories.md:1154`) forbids import from ever creating one. A capability row exists for the *authority* (`:673`, Owner/Admin yes, Manager no) — but **no acceptance criterion in US-005, US-006, US-007, US-022–025 or US-030 builds the endpoint or the job.** Confirmed by exhaustive search, not inference. US-005c *consumes* provisioned months; consuming is not building. **Not folded into US-005a/b/c** — that would invent an owner | **US-005c** (AC-05/06/07 are untestable without it) | **You** — a new US-id, or amend an existing story to own it |
+| B-2 | **C-01 narrowed, not closed.** `walmart-probe` ran against the live store and proposed 13 settlement-category mappings in `docs/walmart/settlement-recon-v1.md`, each marked confirmed or explicitly uncertain, with one real category (`Fee/Reimbursement`) deliberately left unmapped and recommended for suspense rather than guessed. **No row has been applied to any running config/table** — the proposal is evidence, not a decision. Needs Owner review before `settlement_category_mappings` (or equivalent) is actually populated | Slice 4 commit | **You** — review `docs/walmart/settlement-recon-v1.md` and approve/amend the 13 proposed rows |
+| ~~B-3~~ | ~~`.env` credential naming/value conflict~~ | -- | **Closed this session.** You renamed `clientID`/`clientSecret` to `WALMART_CLIENT_ID`/`WALMART_SECRET_KEY`, but left the old, pre-existing `WALMART_SECRET_KEY` line in place too — two lines, same name, two values. Verified empirically (`dotenv_values`) that `python-dotenv` resolves duplicate keys last-wins, so the app already saw the correct new pair; I deleted the stale first line for clarity (no behaviour change) and confirmed the resolved values were unchanged before and after. `walmart-probe` then authenticated successfully against the live API (`200` from Walmart's token endpoint) and completed a full fixture-recording pass. **Separately, caught and reverted a near-miss**: an earlier edit had pasted the live credential values into `.env.example` — the tracked template file, never meant to hold real secrets (its own line 1 says so) — uncommitted, caught before `git add`, reverted with `git checkout -- .env.example`. `.env` itself remains correctly gitignored throughout; confirmed with `git check-ignore -v` |
+| B-18 | **A real Walmart order contradicts BR-02 ("one SKU per order, no line items"), which is guardrail-enforced (`SC-09`, `DB-07`) and treated as settled.** `walmart-probe` found one order (of 587 pulled, ~0.17%) with two order lines, two distinct SKUs, two independent charge sets, under a single `purchaseOrderId` — ordinary and well-formed on Walmart's side, not an error. Fixture preserved at `fixtures/walmart/orders/v3/order_MULTI_SKU_CONTRADICTS_BR-02.json`; full writeup in `docs/walmart/orders-v3.md:208-237`. **This bears directly on US-005a's own order-identity key** — `(store_id, walmart_order_id)` has no SKU component, so a naive mapping of this exact order would silently overwrite one product's entire record with the other's, with no error and no audit trail showing data was dropped. The probe offered three shapes of resolution (split into two rows, breaking the stated unique constraint; import only the first line, understating revenue/quantity/cost; reject the whole order visibly, with no AC currently describing that path) **without recommending one** — this is a genuine specification-vs-reality contradiction, not a gap with an obvious narrow reading, so no interim ruling was applied | Any future ingestion from the live Walmart API; reopens the question of whether US-005a's uniqueness key is already incomplete | **You** — rule on which of the three shapes (or another) is correct, or confirm the order-line case is to be excluded/handled manually outside this system entirely |
 | B-17 | **Nobody owns accounting-month provisioning.** `walmart-slice-plan.md:106` assigns "the month provisioning job" to slice 2. `api-service-design.md:266` makes `POST /months/provision` the **only** way a month comes into existence, and D-09 (`walmart-user-stories.md:1154`) forbids import from ever creating one. A capability row exists for the *authority* (`:673`, Owner/Admin yes, Manager no) — but **no acceptance criterion in US-005, US-006, US-007, US-022–025 or US-030 builds the endpoint or the job.** Confirmed by exhaustive search, not inference. US-005c *consumes* provisioned months; consuming is not building. **Not folded into US-005a/b/c** — that would invent an owner | **US-005c** (AC-05/06/07 are untestable without it) | **You** — a new US-id, or amend an existing story to own it |
 | B-4 | No Postgres instance provisioned | Slice 0 | **You** ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â pick Neon, Railway or RDS |
 | B-5 | No deployment target chosen | Slice 0 "deployed" criterion | **You** |
