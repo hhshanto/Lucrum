@@ -78,12 +78,19 @@ pre-existing ``sku = excluded.sku`` upsert behaviour for that case,
 unguarded, exactly as before this story. Only the WITHIN-one-request-batch
 case is detected.
 
-**Three invented conventions, each disclosed at its point of use because
+**Four invented conventions, each disclosed at its point of use because
 no document defines any of them (B-12's ``store_created`` precedent):**
 
 1. ``import_errors.error_code`` for a BR-02 rejection is
    ``"MULTIPLE_SKUS_FOR_ORDER"`` (see ``_MULTI_SKU_ERROR_CODE`` below) --
    no catalogue of import error codes exists anywhere in the specification.
+   A SIBLING rejection -- two lines for one order id sharing the SAME sku,
+   a duplicate submission rather than a disagreement -- uses a DISTINCT
+   code, ``"DUPLICATE_ORDER_LINE"`` (``_DUPLICATE_LINE_ERROR_CODE``, B-21,
+   interim; added in the fix round that closed finding F-96, see
+   PROGRESS.md). BR-02's "there are no order line items" clause does not
+   turn on whether the SKUs agree, so both shapes are rejected whole and
+   visibly -- never one line silently kept and the rest dropped.
 2. The HTTP status for "every order in this batch was rejected" is 422
    (``WholeBatchImportRejected``'s handler, ``src/main.py``) -- analogous
    to this file's own existing, equally-unpinned 409/404 choices.
@@ -97,6 +104,14 @@ no document defines any of them (B-12's ``store_created`` precedent):**
    This choice also makes ``row_count = success_count + error_count`` hold
    as a readable invariant, which per-line counting mixed with per-order
    rejection would not.
+4. ``_EVENT_TYPE = "orders_imported"`` is REUSED for a batch in which
+   EVERY order was rejected (zero orders actually imported) -- the audit
+   event type does not change between a success, a partial batch, and a
+   total failure. Defensible (it keeps one idempotency-key namespace
+   across every outcome of the same call, rather than splitting replay
+   detection across event types for what is still one logical operation)
+   but it IS a judgment call, named here rather than left to be noticed
+   only by reading the constant.
 
 **G-7's narrow transition rule is applied, read precisely**
 (PROGRESS.md: "a batch that raises before any row is written is failed").
@@ -159,6 +174,19 @@ _IMPORT_TYPE = "orders"
 # Invented, disclosed (module docstring, point 1): no catalogue of import
 # error codes exists anywhere in the specification.
 _MULTI_SKU_ERROR_CODE = "MULTIPLE_SKUS_FOR_ORDER"
+
+# B-21, interim (new blocker, invariant-auditor, fd34d7a fix round; see
+# this module's docstring, "US-005b-1" section, and PROGRESS.md): two
+# submitted lines for one walmart_order_id sharing the SAME sku are a
+# duplicate LINE submission, not a SKU disagreement -- BR-02's operative
+# clause ("There are no order line items") does not mention SKUs at all,
+# so this is rejected whole and visibly too, under a DISTINCT error_code
+# from the multi-SKU case so an operator reading import_errors can tell
+# "more than one line" apart from "more than one SKU". Whether a genuine
+# same-SKU duplicate should instead be summed as a quantity split is an
+# undecided Owner question (B-21) -- this is the interim, reversible
+# ruling, not a confirmed rule.
+_DUPLICATE_LINE_ERROR_CODE = "DUPLICATE_ORDER_LINE"
 
 
 class StoreInactive(Exception):
@@ -276,10 +304,13 @@ def _group_by_walmart_order_id(
     orders: list[OrderImportItem],
 ) -> dict[str, list[OrderImportItem]]:
     """Group submitted lines by ``walmart_order_id``, preserving first-seen
-    order (plain ``dict`` insertion order, Python 3.7+). A group of more
-    than one item sharing different ``sku`` values is the WITHIN-batch
-    BR-02 conflict B-18 rejects whole -- detected here, from the request's
-    own payload, before any database write is attempted.
+    order (plain ``dict`` insertion order, Python 3.7+). Grouping alone
+    does not decide anything -- the caller inspects each group's size and
+    distinct ``sku`` count to tell apart a single line, a multi-SKU
+    conflict (B-18), and a same-SKU duplicate-line submission (B-21,
+    interim) -- both of the latter two are rejected WHOLE, visibly, before
+    any database write is attempted; neither silently keeps ``items[0]``
+    and drops the rest (the live defect F-96 found and this fix closes).
     """
     groups: dict[str, list[OrderImportItem]] = {}
     for item in orders:
@@ -301,6 +332,26 @@ def _multi_sku_error(walmart_order_id: str, skus: list[str]) -> dict[str, Any]:
     }
 
 
+def _duplicate_line_error(walmart_order_id: str, line_count: int, sku: str) -> dict[str, Any]:
+    """B-21, interim (see ``_DUPLICATE_LINE_ERROR_CODE`` above): two or
+    more lines in one batch share BOTH ``walmart_order_id`` and ``sku`` --
+    a duplicate LINE submission, not a SKU disagreement. Rejected whole,
+    visibly, same as the multi-SKU case, under a distinct error_code.
+    """
+    message = (
+        f"order {walmart_order_id!r} was submitted {line_count} times "
+        f"within one import batch, all sharing sku {sku!r}; BR-02's "
+        "'no order line items' clause treats this as a multi-line order "
+        "regardless of SKU agreement. Rejected whole -- no line was "
+        "persisted (B-21, interim ruling, PROGRESS.md)."
+    )
+    return {
+        "walmart_order_id": walmart_order_id,
+        "error_code": _DUPLICATE_LINE_ERROR_CODE,
+        "message": message,
+    }
+
+
 def _replay_import_outcome(
     after_state: dict[str, Any], *, store_id: uuid.UUID
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
@@ -309,9 +360,15 @@ def _replay_import_outcome(
     must report the SAME failure, not silently succeed).
     """
     if after_state.get("outcome") == "failed":
+        # F-101: `after_state["batch_id"]` was stored as `str(batch["id"])`
+        # (jsonb has no UUID type) -- converted back to `uuid.UUID` here so
+        # `WholeBatchImportRejected.batch_id` is the SAME type on both the
+        # replay path and the original-raise path (this module's own
+        # `outcome == "failed"` branch, below, in `import_orders` itself),
+        # never a `str` on one and a `uuid.UUID` on the other.
         raise WholeBatchImportRejected(
             store_id=store_id,
-            batch_id=after_state.get("batch_id"),
+            batch_id=uuid.UUID(after_state["batch_id"]),
             errors=after_state.get("errors", []),
         )
     return after_state.get("orders", []), after_state.get("errors", []), True
@@ -349,8 +406,9 @@ def import_orders(
     """Upsert a batch of orders into one store.
 
     Returns ``(results, errors, replayed)``. ``errors`` is one dict per
-    rejected order (today, only the B-18 multi-SKU shape) -- empty when
-    every order in the batch was accepted. Raises
+    rejected order -- the B-18 multi-SKU shape or the B-21 same-SKU
+    duplicate-line shape, told apart by ``error_code`` -- empty when every
+    order in the batch was accepted. Raises
     ``WholeBatchImportRejected`` instead of returning when EVERY order in
     the batch was rejected (see this module's own docstring for why that is
     the chosen total-failure boundary).
@@ -419,6 +477,29 @@ def import_orders(
                             "raw_row": {
                                 "walmart_order_id": walmart_order_id,
                                 "skus": skus,
+                            },
+                        }
+                    )
+                    continue
+
+                if len(items) > 1:
+                    # B-21, interim: more than one line for this order id,
+                    # all sharing the SAME sku -- a duplicate LINE
+                    # submission, not a SKU disagreement. BR-02's "there
+                    # are no order line items" clause rejects this whole
+                    # too, visibly, under a distinct error_code (see
+                    # ``_DUPLICATE_LINE_ERROR_CODE`` above). Never
+                    # ``items[0]`` silently taken with the rest dropped.
+                    errors.append(
+                        _duplicate_line_error(walmart_order_id, len(items), skus[0])
+                    )
+                    error_rows.append(
+                        {
+                            "external_reference": walmart_order_id,
+                            "raw_row": {
+                                "walmart_order_id": walmart_order_id,
+                                "sku": skus[0],
+                                "line_count": len(items),
                             },
                         }
                     )
@@ -525,11 +606,15 @@ def import_orders(
         # NESTED savepoint, not the outermost transaction -- its clean exit
         # only RELEASEs the savepoint, it does not COMMIT. Without this
         # call, raising below propagates out through `with connection() as
-        # conn:` (src/main.py) to `psycopg.Connection.__exit__`, which
-        # rolls back the whole ambient transaction -- undoing the batch and
-        # error rows this function just told the caller were durably
-        # recorded. `conn.commit()` here ends that ambient transaction for
-        # real, before the exception is raised.
+        # conn:` (`src/db/connection.py`'s own wrapper around
+        # `psycopg_pool.ConnectionPool.connection()`, used by
+        # `src/main.py`) -- it is THAT pool context manager's `__exit__`,
+        # not `psycopg.Connection.__exit__` directly, that calls
+        # `conn.rollback()` on exception, rolling back the whole ambient
+        # transaction and undoing the batch and error rows this function
+        # just told the caller were durably recorded. `conn.commit()` here
+        # ends that ambient transaction for real, before the exception is
+        # raised.
         conn.commit()
         raise WholeBatchImportRejected(
             store_id=store_id, batch_id=batch["id"], errors=errors
