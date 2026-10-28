@@ -695,6 +695,19 @@ class TestAC032FailedRunDoesNotAdvanceLastSuccess:
         assert failed_batch["finished_at"] is not None
         assert failed_batch["success_count"] == 0
         assert failed_batch["error_count"] >= 1
+        # F-104: `row_count` was asserted nowhere in this test before --
+        # only `success_count`/`error_count` were pinned. The conflicting
+        # pair shares ONE `walmart_order_id` (this module's own chosen
+        # granularity, "order groups" not raw lines -- service.py's own
+        # docstring, point 3), so `row_count` must be 1, not 2 (which
+        # would mean the two submitted LINES were counted instead of the
+        # one rejected ORDER) and not 0 (which would mean the group was
+        # never counted as submitted at all).
+        # Mutation this catches: `row_count = len(groups)` changed to
+        # `row_count = len(orders)` (counting raw lines instead of
+        # order-groups) -- would silently turn 1 into 2 here with every
+        # other assertion in this test still passing.
+        assert failed_batch["row_count"] == 1
 
         errors = _fetch_errors_for_batch(migrated_database, failed_batch["id"])
         assert errors, "a failed batch must leave a durable import_errors record"
@@ -996,6 +1009,331 @@ class TestB181MultiSkuOrderRejectedWhole:
         assert body.get("errors"), (
             f"a batch with ANY rejected order must carry a visible error, "
             f"even when other orders in it succeeded: {body!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F-95 -- the `partial` arm (`service.py`'s mixed-batch outcome branch) is
+# reachable only by `test_b18_1_a_valid_order_elsewhere_in_the_same_batch_
+# still_commits`, above, and every one of THAT test's assertions survives
+# the mutation `outcome = "partial"` -> `outcome = "completed"` (confirmed
+# by the invariant-auditor, fix round, fd34d7a). That mutation is AC-03's
+# own forbidden outcome made real: a batch in which an order was rejected
+# would advance `last_success_at` and report `last_attempt_status ==
+# "completed"` -- "stale data... labeled current", the exact sentence
+# AC-03 exists to forbid (walmart-user-stories.md:791).
+#
+# CRITICAL, per the auditor's own instruction: this test does NOT assert
+# `status_code == "partial"`. Whether a mixed batch is `partial` or
+# `failed` is G-7, an undecided transition rule no document states (see
+# `service.py`'s own module docstring, "A MIXED batch... is classified
+# 'partial' -- not mandated by any document"). Asserting the literal value
+# would freeze an Owner decision nobody has made. The only thing AC-03's
+# own sentence actually requires -- and the only thing asserted here -- is
+# the NEGATIVE constraint: not `completed`, and `last_success_at` does not
+# advance to this batch.
+# ---------------------------------------------------------------------------
+
+
+class TestF95MixedBatchOutcomeIsNeverReportedAsCompleted:
+    def test_f95_a_mixed_batch_is_not_completed_and_does_not_become_the_last_success(
+        self, client, migrated_database
+    ):
+        """One valid order plus one rejected (multi-SKU) order in a SINGLE
+        request, for a store with NO prior import history at all -- so
+        this mixed batch is the only `import_batches` row that will ever
+        exist for this store, and the only candidate `last_success_at`
+        could possibly point to.
+
+        Mutation this test is written to catch, confirmed by actually
+        applying it (see the session notes for the exact revert
+        transcript): `service.py`'s `outcome = "partial"` ->
+        `outcome = "completed"`, three lines below the `else:` branch
+        that computes it. Under the mutation:
+
+        * the batch row's own `status_code` becomes `"completed"`
+          (caught by this test's first assertion), AND
+        * `get_import_run_state` -- which picks `last_success_at` as the
+          most recent batch with `status_code == "completed"`
+          (`repository.py`'s own `next(b for b in batches if
+          b["status_code"] == "completed")`) -- now finds THIS mixed
+          batch and reports its `finished_at` as a genuine last success,
+          even though an order within it was rejected (caught by this
+          test's second and third assertions).
+
+        Deliberately NOT asserted: the literal value `"partial"` for
+        `status_code` or `last_attempt_status` -- see this class's own
+        docstring, above, and the module docstring's point 2. Only `!=
+        "completed"` is pinned, which needs no ruling from anyone.
+        """
+        from src.orders import repository
+        from src.scoping import StoreScope
+
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F95 Mixed Batch Store"))
+            owner = _create_user(c, role="owner", password="f95-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        valid_order_id = _new_order_id("f95-valid")
+        conflict_order_id = _new_order_id("f95-conflict")
+        batch_payload = [
+            _order_payload(walmart_order_id=valid_order_id, sku="SKU-F95-VALID"),
+            *_conflicting_pair(conflict_order_id),
+        ]
+
+        r = _import(client, token, store_id, batch_payload)
+        assert r.status_code == 201, r.text
+
+        batches = _fetch_batches_for_store(migrated_database, store_id)
+        assert len(batches) == 1, (
+            "this store's first-ever import is this one mixed batch -- "
+            f"expected exactly one row: {batches!r}"
+        )
+        batch = batches[0]
+
+        # Negative constraint #1: the batch row itself.
+        assert batch["status_code"] != "completed", (
+            "a batch containing a rejected order must never carry the "
+            f"same status_code as a genuinely clean run: {batch!r}"
+        )
+
+        with psycopg.connect(migrated_database, row_factory=dict_row) as conn:
+            state = repository.get_import_run_state(
+                conn, StoreScope.owner(), uuid.UUID(store_id)
+            )
+
+        # Negative constraint #2: the queryable state's `last_attempt_
+        # status` must not launder the mixed batch into a clean read.
+        assert state["last_attempt_status"] != "completed", (
+            f"the most recent attempt genuinely contained a rejection; "
+            f"reporting it as 'completed' is exactly 'stale data... "
+            f"labeled current': {state!r}"
+        )
+
+        # Negative constraint #3: `last_success_at` must NOT advance to
+        # this batch. This store has no other import history at all, so
+        # under correct behaviour there is no real success to point to
+        # yet -- `last_success_at` must stay None, not silently adopt
+        # this mixed batch's own `finished_at` as if it were a genuine
+        # success.
+        assert state["last_success_at"] is None, (
+            "a mixed batch must not become the store's 'last successful "
+            f"update' just because SOME order in it succeeded: {state!r}"
+        )
+        assert state["last_success_at"] != batch["finished_at"], (
+            "last_success_at must not point at the mixed batch's own "
+            f"finished_at: {state!r} vs batch {batch!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F-96 / B-21 -- same-SKU duplicate lines for one order are silently
+# discarded today (`service.py:409-427`, `items[1:]` dropped with no error
+# row, no count, no comment), not rejected visibly.
+#
+# B-21 (NEW blocker, raised by the invariant-auditor, fd34d7a fix round):
+# is a same-SKU duplicate line a legitimate quantity split that should be
+# summed, or a BR-02 violation that must be rejected? UNDECIDED -- no
+# document rules on it either way. This file's INTERIM ruling, reversible,
+# the Owner's to make: BR-02 (walmart-user-stories.md:41) says "An order
+# carries exactly one SKU... There are no order line items" -- the
+# operative clause does not mention SKUs at all, so two submitted lines
+# for one order id is a multi-line order regardless of whether the SKUs
+# happen to agree. B-18's own ruling (PROGRESS.md, 2026-10-28) is explicit
+# that the whole-order rejection "must be visible, not a silent skip" --
+# today's behaviour for this shape is precisely a silent skip. The test
+# below asserts the interim ruling (reject whole, visibly, like B-18's
+# multi-SKU case but with a DISTINCT error_code), not the quantity-sum
+# alternative -- if the Owner rules the other way, THIS test is the one to
+# revisit, not any other AC-03/B-18 content in this file.
+# ---------------------------------------------------------------------------
+
+
+def _duplicate_same_sku_pair(order_id: str, *, sku: str = "SKU-F96-SAME") -> list[dict]:
+    """Two order lines sharing one ``walmart_order_id`` AND the same
+    ``sku`` -- a straightforward duplicate submission, NOT a SKU
+    disagreement (B-18's shape, which always differs on sku). See this
+    section's own module-level comment, above, for the full B-21
+    reasoning behind treating this as a whole-order rejection.
+    """
+    return [
+        _order_payload(walmart_order_id=order_id, sku=sku),
+        _order_payload(walmart_order_id=order_id, sku=sku),
+    ]
+
+
+class TestF96SameSkuDuplicateLinesAreRejectedNotSilentlyDropped:
+    def test_f96_a_same_sku_duplicate_line_is_rejected_whole_not_silently_dropped(
+        self, client, migrated_database
+    ):
+        """Today's LIVE defect, not a hypothetical one. `_group_by_
+        walmart_order_id` groups submitted lines by `walmart_order_id`
+        only; `service.py`'s `len(skus) > 1` guard counts DISTINCT skus,
+        so a group of two lines sharing the SAME sku has `len(skus) ==
+        1` and falls straight through to `item = items[0]` --
+        `items[1:]` (the second line) is silently dropped. The batch
+        then records `row_count=1, success_count=1, error_count=0,
+        status_code='completed'`: an affirmative claim of a clean run
+        for a request in which a submitted line vanished with no trace.
+
+        This test is EXPECTED TO FAIL against `fd34d7a` -- that is the
+        point. The assertions below are ordered so the first failure is
+        the most diagnostic one: a surviving `orders` row count of 1
+        (not 0) for the duplicate-line order, which is exactly "one
+        surviving row" the auditor's finding describes, not an import or
+        fixture error.
+        """
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F96 Same-SKU Duplicate Store"))
+            owner = _create_user(c, role="owner", password="f96-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        valid_order_id = _new_order_id("f96-valid")
+        duplicate_order_id = _new_order_id("f96-duplicate")
+        batch_payload = [
+            _order_payload(walmart_order_id=valid_order_id, sku="SKU-F96-VALID"),
+            *_duplicate_same_sku_pair(duplicate_order_id),
+        ]
+
+        r = _import(client, token, store_id, batch_payload)
+
+        # The duplicate-line order must be rejected WHOLE -- zero rows,
+        # never one (the naive/live behaviour: the first of the two
+        # lines is written, the second silently dropped).
+        assert _count_orders(migrated_database, store_id, duplicate_order_id) == 0, (
+            "a same-SKU duplicate submission must be rejected whole, not "
+            "silently reduced to its first line -- a count of 1 means "
+            "the second line vanished with no trace (the live F-96 "
+            "defect)"
+        )
+
+        # The valid, unrelated order in the same batch must still commit
+        # -- same B-18 discipline as the multi-SKU case.
+        assert _count_orders(migrated_database, store_id, valid_order_id) == 1
+
+        batches = _fetch_batches_for_store(migrated_database, store_id)
+        assert batches, "the import must leave a durable batch record"
+        batch = batches[-1]
+        assert batch["status_code"] != "completed", (
+            "a batch containing a silently-dropped line must not report "
+            f"a clean completed run: {batch!r}"
+        )
+        assert batch["error_count"] >= 1, (
+            f"the dropped line must be counted as an error, not invisible: {batch!r}"
+        )
+
+        errors = _fetch_errors_for_batch(migrated_database, batch["id"])
+        assert errors, "the rejection must be durably recorded in import_errors"
+        duplicate_errors = [
+            e for e in errors if duplicate_order_id in (e["external_reference"] or "")
+        ]
+        assert duplicate_errors, (
+            "import_errors must identify WHICH order had the duplicate "
+            f"line, not just that something failed: {errors!r}"
+        )
+        assert all(e["error_message"] for e in duplicate_errors), (
+            "every error needs a human message"
+        )
+
+        # Distinct error_code from the multi-SKU case (B-18): an operator
+        # reading import_errors needs to tell "more than one LINE" apart
+        # from "more than one SKU" -- they are different conditions. The
+        # literal string for THIS code is not asserted anywhere (no
+        # catalogue of import error codes exists in the specification);
+        # only that it differs from the multi-SKU code is pinned. The
+        # multi-SKU code itself IS already a disclosed, literal constant
+        # (`service.py`'s own module docstring, point 1:
+        # "MULTIPLE_SKUS_FOR_ORDER") -- referenced here only as the value
+        # to differ FROM, not as a value this test's own error code must
+        # match.
+        multi_sku_error_code = "MULTIPLE_SKUS_FOR_ORDER"
+        assert all(
+            e["error_code"] != multi_sku_error_code for e in duplicate_errors
+        ), (
+            "a same-SKU duplicate-line rejection must use a DISTINCT "
+            f"error_code from the multi-SKU conflict's "
+            f"{multi_sku_error_code!r} -- the two conditions are "
+            f"different and an operator needs to tell them apart: {errors!r}"
+        )
+
+        # The response body visibly names the problem too, same posture
+        # as the multi-SKU case.
+        body = r.json()
+        assert body.get("errors"), (
+            "a batch containing a rejected duplicate-line order must "
+            f"carry a visible error in the response: {body!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F-100 -- no test replays a MIXED batch, so the `errors` passthrough on a
+# successful replay (`service.py`'s `_replay_import_outcome`, the
+# non-failed branch: `return after_state.get("orders", []), after_state.
+# get("errors", []), True`) is unproven. Mutate `after_state.get("errors",
+# []) ` -> `[]` and every OTHER test in this file stays green -- meaning a
+# retried mixed import would return 2xx with `errors: []`, hiding a
+# failure the FIRST call had already reported.
+# ---------------------------------------------------------------------------
+
+
+class TestF100ReplayingAMixedBatchPreservesTheReportedErrors:
+    def test_f100_replaying_a_mixed_batch_does_not_hide_the_original_errors(
+        self, client, migrated_database
+    ):
+        """The same mixed-batch fixture F-95 needs (one valid order, one
+        rejected order, one request), now replayed under the SAME
+        Idempotency-Key. An honest retry must report the SAME `errors`
+        the first call reported -- not an emptied-out list that would
+        make a retried mixed import look like a clean success.
+
+        Mutation this catches: `_replay_import_outcome`'s
+        `after_state.get("errors", [])` changed to a bare `[]` on the
+        non-failed branch -- every test in this file EXCEPT this one
+        stays green under that mutation (confirmed: no other test in
+        this file replays a request whose FIRST call had a non-empty
+        `errors` list in its response).
+        """
+        with _committed(migrated_database) as c:
+            store_id = str(_create_store_db(c, "F100 Replay Mixed Batch Store"))
+            owner = _create_user(c, role="owner", password="f100-owner-pw")
+        token = _sign_in(client, owner, with_mfa=True)
+
+        op_id = _idempotency_key()
+        valid_order_id = _new_order_id("f100-valid")
+        conflict_order_id = _new_order_id("f100-conflict")
+        payload = [
+            _order_payload(walmart_order_id=valid_order_id, sku="SKU-F100-VALID"),
+            *_conflicting_pair(conflict_order_id),
+        ]
+
+        first = _import(client, token, store_id, payload, operation_id=op_id)
+        assert first.status_code == 201, first.text
+        first_errors = first.json().get("errors")
+        assert first_errors, (
+            f"the fixture itself must produce a real, non-empty errors "
+            f"list on the FIRST call, or this test proves nothing: {first.json()!r}"
+        )
+
+        second = _import(client, token, store_id, payload, operation_id=op_id)
+        assert second.status_code == first.status_code, (
+            "a replayed mixed batch must report the SAME status as the "
+            f"first attempt: {first.status_code} vs {second.status_code}"
+        )
+        second_errors = second.json().get("errors")
+        assert second_errors == first_errors, (
+            "an honest replay of a mixed batch must report the SAME "
+            "errors as the original call -- an emptied-out errors list "
+            "would hide a failure the first call had already reported: "
+            f"first={first_errors!r} second={second_errors!r}"
+        )
+
+        # The replay must not create a second batch row either -- same
+        # discipline as TestImportRunRecordingIsIdempotent, applied to
+        # the mixed-batch shape specifically.
+        batches = _fetch_batches_for_store(migrated_database, store_id)
+        assert len(batches) == 1, (
+            "an honest retry under the same Idempotency-Key must not "
+            f"create a second import_batches row: {batches!r}"
         )
 
 
