@@ -400,10 +400,24 @@ def _latest_batch_status(database_url: str, store_id) -> str:
     for a store -- used only as a setup/regression check, so each new
     test below can state plainly that its own fixture produced the exact
     outcome (``partial``) its assertions depend on, rather than assuming
-    it. Ties broken the same way ``test_us005b1_import_run_record.py``'s
-    own G-8 carried note recommends (``started_at`` has only
-    microsecond/Windows-clock resolution) -- not a production fix, just a
-    deterministic read for this file's own fixtures.
+    it.
+
+    N-05 (``tests/test_g8_import_attempt_ordering.py``, G-8,
+    ``DECISIONS.md`` 2026-10-28): this helper previously broke ties with
+    ``, id desc`` -- a DIFFERENT tiebreak from
+    ``repository.get_import_run_state``'s own ``order by started_at
+    desc`` (no secondary key at all). Under a genuine tie the fixture
+    could assert one batch while production reads another, making a
+    production bug surface here as a wrong-looking fixture assertion
+    instead of the real cause. The rule, stated in that story's brief:
+    **the helper moves to match production, never the reverse.** This
+    query is now byte-for-byte the same ordering
+    ``get_import_run_state`` uses today. It inherits the SAME known
+    non-determinism under a real tie (G-8, open until migration 005 adds
+    ``batch_seq``) -- this file's own fixtures do not construct a tie on
+    purpose, so that gap does not affect the tests that call this
+    helper, only keeps this helper honest about what production actually
+    does.
     """
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         row = conn.execute(
@@ -411,7 +425,7 @@ def _latest_batch_status(database_url: str, store_id) -> str:
             select status_code
             from import_batches
             where store_id = %s
-            order by started_at desc, id desc
+            order by started_at desc
             limit 1
             """,
             (store_id,),

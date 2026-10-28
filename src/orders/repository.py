@@ -339,8 +339,21 @@ def get_import_run_state(
         select status_code, finished_at
           from import_batches
          where store_id = %(store_id)s and import_type = %(import_type)s
-         order by started_at desc
+         order by started_at desc, batch_seq desc
         """,
+        # `started_at` is application-supplied and two rows can share a
+        # byte-identical instant (observed on Windows, microsecond clock
+        # resolution) -- Postgres's tie order with no secondary key is
+        # UNDEFINED (G-8). `batch_seq` is a database-assigned, monotonic
+        # identity column (migration 005) used ONLY to break that tie.
+        # `started_at` stays the PRIMARY key of this ordering: a row with
+        # a genuinely later `started_at` must still win regardless of
+        # insertion order. Do NOT "simplify" this to `id desc` --
+        # `import_batches.id` is a random `gen_random_uuid()`, so that
+        # ordering is deterministic but ARBITRARY: it would report the
+        # OLDER attempt as "most recent" roughly half the time, which is a
+        # silent wrong answer rather than a visible flake (DECISIONS.md,
+        # G-8, 2026-10-28).
         {"store_id": store_id, "import_type": import_type},
     ).fetchall()
 
